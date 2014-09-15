@@ -3,10 +3,12 @@ module.exports = {
     "d9c166f0-3c6d-11e4-801e-d5aa4697630f": {
         "name": "Basic Factory",
         "type": "structure",
+        "inventory_capacity": 100, // m3
+        "hanger_capacity": 2000, // tonnes, megagrams, 1000kg
         "build": {
             "time": 300,
             "resources": {
-                "metal": 2
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
             }
         },
         "production": {
@@ -17,25 +19,28 @@ module.exports = {
     },
     "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": {
         "name": "Metal",
+        "volume": 1,
         "type": "resource"
     },
     "de726be0-3c6d-11e4-801e-d5aa4697630f": {
         "name": "Ore",
         "type": "resource",
+        "volume": 5,
         "refine": {
             "time": 1,
             "outputs": {
-                "metal": 1
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 1
             }
         }
     },
     "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b": {
         "name": "Basic Scaffold",
         "type": "deployable",
+        "volume": 20,
         "build": {
             "time": 10,
             "resources": {
-                "metal": 1
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 1
             }
         },
         "production": {
@@ -49,16 +54,25 @@ module.exports = {
     "33e24278-4d46-4146-946e-58a449d5afae": {
         "name": "Ore mine",
         "type": "structure",
+        "inventory_capacity": 100, // needs to be emptied every 20min
+        "production": {
+            "generation": [{
+                "type": "de726be0-3c6d-11e4-801e-d5aa4697630f",
+                "period": 300,
+                "quantity": 5
+            }]
+        },
         "build": {
             "time": 30,
             "resources": {
-                "metal": 2
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
             }
         }
     },
     "7abb04d3-7d58-42d8-be93-89eb486a1c67": {
         "name": "Starter Ship",
         "type": "spaceship",
+        "inventory_capacity": 100,
         "production": {
             "manufacture": [{
                 "item": "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b"
@@ -79,7 +93,7 @@ module.exports = {
         "build": {
             "time": 30,
             "resources": {
-                "metal": 20
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 20
             }
         },
 
