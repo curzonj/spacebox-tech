@@ -14,6 +14,8 @@ module.exports = {
         "production": {
             "manufacture": [{
                 "item": "6e573ecc-557b-4e05-9f3b-511b2611c474"
+            }, {
+                "item": "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b"
             }]
         }
     },
