@@ -14,6 +14,9 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
 var blueprints = require('./blueprints');
+for (var uuid in blueprints) {
+    blueprints[uuid].uuid = uuid;
+}
 
 app.get('/blueprints', function(req, res) {
     res.send(blueprints);
