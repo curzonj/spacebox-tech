@@ -92,6 +92,8 @@ module.exports = {
         "health_pct": 100,
         "damage": 1,
 
+        "type": "spaceship",
+        "volume": 100,
         "build": {
             "time": 30,
             "resources": {
