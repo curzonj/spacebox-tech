@@ -3,7 +3,7 @@ module.exports = {
     "d9c166f0-3c6d-11e4-801e-d5aa4697630f": {
         "name": "Basic Factory",
         "type": "structure",
-        "inventory_capacity": 100, // m3
+        "inventory_capacity": 500, // m3
         "hanger_capacity": 2000, // tonnes, megagrams, 1000kg
         "build": {
             "time": 300,
@@ -40,11 +40,12 @@ module.exports = {
         "type": "deployable",
         "volume": 20,
         "build": {
-            "time": 10,
+            "time": 2, // should be 10 atm
             "resources": {
                 "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 1
             }
         },
+        "inventory_capacity": 10, // m3
         "production": {
             "construct": [{
                 "item": "33e24278-4d46-4146-946e-58a449d5afae"
@@ -65,7 +66,7 @@ module.exports = {
             }]
         },
         "build": {
-            "time": 30,
+            "time": 3, // should be 30 atm
             "resources": {
                 "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
             }
