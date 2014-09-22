@@ -57,13 +57,25 @@ module.exports = {
     "33e24278-4d46-4146-946e-58a449d5afae": {
         "name": "Ore mine",
         "type": "structure",
-        "inventory_capacity": 100, // needs to be emptied every 20min
+        "inventory_capacity": 1000,
         "production": {
-            "generation": [{
+            "generate": {
                 "type": "de726be0-3c6d-11e4-801e-d5aa4697630f",
-                "period": 300,
+                "period": 2,
                 "quantity": 5
-            }]
+                /* These are the tech functions for this
+                "functions": {
+                    "output":     [ [ 1, 0.4 ], [ 20, 0 ] ],
+                    "capacity":   [ [ 1, 0.4 ], [ 20, 0 ] ],
+                    "shields":    [ [ 1, 0.4 ], [ 20, 0 ] ],
+                    "structural": [ [ 1, 0.4 ], [ 20, 0 ] ],
+                    "build_time": [ [ 1, 0.4 ], [ 20, 0 ] ]
+                    // there should be incentive to do fewer bigger
+                    // upgrades that take longer. It requires pacience
+                    // and planning vs the quick win of a short upgrade
+                }
+                */
+            }
         },
         "build": {
             "time": 3, // should be 30 atm
