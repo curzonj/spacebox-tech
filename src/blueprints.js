@@ -98,12 +98,7 @@ module.exports = {
         }
     },
     "6e573ecc-557b-4e05-9f3b-511b2611c474": {
-        // TODO lots of this data doesn't belong in the blueprint
         "name": "Basic Fighter",
-        "maxHealth": 30,
-        "health": 30,
-        "health_pct": 100,
-        "damage": 1,
 
         "type": "spaceship",
         "volume": 100,
@@ -114,33 +109,16 @@ module.exports = {
             }
         },
 
-        "position": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-        },
-        "velocity": {
-            "x": 0,
-            "y": 0,
-            "z": 0
-        },
-        "facing": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-        },
+        "maxHealth": 30,
 
-        "subsystems": ["engines", "weapon"],
-        "effects": {},
+        "subsystems": ["engine", "weapon"],
         "engine": {
             "maxVelocity": 1.0,
             "maxTheta": Math.PI / 10,
-            "maxThrust": 0.1,
-            "state": "none" // orbit, approach, etc OR manual
+            "maxThrust": 0.1
         },
         "weapon": {
-            "state": "none"
+            "damage": 1,
         }
     }
 };
