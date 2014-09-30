@@ -3,6 +3,7 @@ module.exports = {
     "d9c166f0-3c6d-11e4-801e-d5aa4697630f": {
         "name": "Basic Factory",
         "type": "structure",
+        "maxHealth": 1000000000,
         "inventory_capacity": 500, // m3
         "hanger_capacity": 2000, // tonnes, megagrams, 1000kg
         "build": {
@@ -101,6 +102,7 @@ module.exports = {
         "name": "Basic Fighter",
 
         "type": "spaceship",
+        "model_name": "fighter1",
         "volume": 100,
         "build": {
             "time": 30,
