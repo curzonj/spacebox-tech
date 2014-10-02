@@ -96,6 +96,18 @@ module.exports = {
             "refine": [{
                 "item": "de726be0-3c6d-11e4-801e-d5aa4697630f"
             }]
+        },
+        "volume": 10,
+        "model_name": "fighter2",
+        "maxHealth": 30,
+        "subsystems": ["engine", "weapon"],
+        "engine": {
+            "maxVelocity": 1.0,
+            "maxTheta": Math.PI / 10,
+            "maxThrust": 0.1
+        },
+        "weapon": {
+            "damage": 1,
         }
     },
     "6e573ecc-557b-4e05-9f3b-511b2611c474": {
