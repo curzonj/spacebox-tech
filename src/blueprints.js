@@ -2,10 +2,7 @@
 module.exports = {
     "d9c166f0-3c6d-11e4-801e-d5aa4697630f": {
         "name": "Basic Factory",
-        "type": "structure",
-        "maxHealth": 1000000000,
-        "inventory_capacity": 500, // m3
-        "hanger_capacity": 2000, // tonnes, megagrams, 1000kg
+        "type": "module",
         "build": {
             "time": 300,
             "resources": {
@@ -36,6 +33,27 @@ module.exports = {
             }
         }
     },
+    "2424c151-645a-40d2-8601-d2f82b2cf4b8": {
+        "name": "Basic Outpost",
+        "type": "structure",
+        "maxHealth": 1000000000,
+        "inventory_capacity": 500, // m3
+        "hanger_capacity": 2000, // tonnes, megagrams, 1000kg
+        "module_limits": {
+            "capacity": 100,
+            "canUse": [{
+                "item": "d9c166f0-3c6d-11e4-801e-d5aa4697630f" // factory
+            }, {
+                "item": "33e24278-4d46-4146-946e-58a449d5afae" // ore mine
+            }]
+        },
+        "build": {
+            "time": 300,
+            "resources": {
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
+            }
+        },
+    },
     "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b": {
         "name": "Basic Scaffold",
         "type": "deployable",
@@ -49,16 +67,13 @@ module.exports = {
         "inventory_capacity": 10, // m3
         "production": {
             "construct": [{
-                "item": "33e24278-4d46-4146-946e-58a449d5afae"
-            }, {
-                "item": "d9c166f0-3c6d-11e4-801e-d5aa4697630f"
+                "item": "2424c151-645a-40d2-8601-d2f82b2cf4b8"
             }]
         }
     },
     "33e24278-4d46-4146-946e-58a449d5afae": {
         "name": "Ore mine",
-        "type": "structure",
-        "inventory_capacity": 1000,
+        "type": "module",
         "production": {
             "generate": {
                 "type": "de726be0-3c6d-11e4-801e-d5aa4697630f",
@@ -91,10 +106,14 @@ module.exports = {
         "inventory_capacity": 100,
         "production": {
             "manufacture": [{
-                "item": "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b"
+                "item": "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b" // scaffold
+            }, {
+                "item": "d9c166f0-3c6d-11e4-801e-d5aa4697630f" // factory mod
+            }, {
+                "item": "33e24278-4d46-4146-946e-58a449d5afae" // ore mine mod
             }],
             "refine": [{
-                "item": "de726be0-3c6d-11e4-801e-d5aa4697630f"
+                "item": "de726be0-3c6d-11e4-801e-d5aa4697630f" // ore
             }]
         },
         "volume": 10,
