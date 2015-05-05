@@ -3,8 +3,9 @@ module.exports = {
     "d9c166f0-3c6d-11e4-801e-d5aa4697630f": {
         "name": "Basic Factory",
         "type": "module",
+        "volume": 2,
         "build": {
-            "time": 300,
+            "time": 30,
             "resources": {
                 "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
             }
@@ -48,7 +49,7 @@ module.exports = {
             }]
         },
         "build": {
-            "time": 300,
+            "time": 30,
             "resources": {
                 "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
             }
@@ -74,6 +75,7 @@ module.exports = {
     "33e24278-4d46-4146-946e-58a449d5afae": {
         "name": "Ore mine",
         "type": "module",
+        "volume": 2,
         "production": {
             "generate": {
                 "type": "de726be0-3c6d-11e4-801e-d5aa4697630f",
