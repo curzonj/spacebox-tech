@@ -1,34 +1,36 @@
 'use strict';
 
-var http = require("http");
-var express = require("express");
-var logger = require('morgan');
-var bodyParser = require('body-parser');
-var uuidGen = require('node-uuid');
+var http = require("http"),
+    express = require("express"),
+    logger = require('morgan'),
+    bodyParser = require('body-parser'),
+    uuidGen = require('node-uuid'),
+    Q = require('q'),
+    C = require('spacebox-common'),
+    db = require('spacebox-common-native').db
 
-var app = express();
-var port = process.env.PORT || 5000;
+db.select('tech')
+Q.longStackSupport = true
 
-app.use(logger('dev'));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
+C.configure({
+    AUTH_URL: process.env.AUTH_URL,
+    credentials: process.env.INTERNAL_CREDS,
+})
 
-var blueprints = require('./blueprints');
-for (var uuid in blueprints) {
-    blueprints[uuid].uuid = uuid;
-}
+var app = express()
+var port = process.env.PORT || 5000
 
-app.get('/blueprints', function(req, res) {
-    res.send(blueprints);
-});
+app.use(logger('dev'))
+app.use(bodyParser.json())
+app.use(bodyParser.urlencoded({ extended: false }))
 
-app.post('/blueprints', function(req, res) {
-    // normally this would have to come from a tech design
-    var uuid = uuidGen.v1();
-    blueprints[uuid] = req.body;
-    res.sendStatus(201);
-});
+require('./blueprints.js')(app)
+require('./inventory.js')(app)
+require('./production.js')(app)
 
-var server = http.createServer(app);
-server.listen(port);
-console.log("server ready");
+var server = http.createServer(app)
+server.listen(port)
+
+require('./pubsub.js').setup_websockets(server)
+
+console.log("server ready")

@@ -6,12 +6,21 @@
     "node": "0.10.x"
   },
   "dependencies": {
+    "ws": "latest",
     "morgan": "~1.3.0",
     "body-parser": "~1.8.1",
     "node-uuid": "latest",
-    "express": "latest"
+    "express": "latest",
+    "debug": "~2.0.0",
+    "q": "~1.3.0",
+    "q-io": "~1.12.0",
+    "postgrator": "latest",
+    "moment": "latest",
+    "spacebox-common": "curzonj/spacebox-nodejs-common"
   },
   "jshintConfig": {
-    "node": true
+    "node": true,
+    "newcap": false,
+    "asi": true
   }
 }
