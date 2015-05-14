@@ -1,13 +1,17 @@
 'use strict';
 
-var uuidGen = require('node-uuid')
+var uuidGen = require('node-uuid'),
+    Q = require('q')
 
 var blueprints = require('./blueprint_demo.js');
 for (var uuid in blueprints) {
     blueprints[uuid].uuid = uuid;
 }
 
-module.export = {
+module.exports = {
+    getData: function() {
+        return Q(blueprints)
+    },
     router: function(app) {
         app.get('/blueprints', function(req, res) {
             res.send(blueprints);

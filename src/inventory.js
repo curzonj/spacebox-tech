@@ -9,6 +9,9 @@ var npm_debug = require('debug'),
     Q = require('q'),
     C = require('spacebox-common')
 
+var blueprints = require('./blueprints.js'),
+    production = require('./production_dep.js')
+
 // TODO inventory will need to keep track of
 // ships and any modules or customization they
 // have. It'll need a seperate root hash.
@@ -45,8 +48,126 @@ var dao = {
     }
 }
 
-module.exports = {
+var self = module.exports = {
     dao: dao,
+    updateContainer: function(container, newBlueprint) {
+        var i = container.doc,
+            b = newBlueprint
+
+        debug(i)
+
+        i.blueprint = newBlueprint.uuid
+        i.capacity.cargo = b.inventory_capacity
+        i.capacity.hanger = b.hanger_capacity
+
+        debug(i)
+
+        return dao.update(container.id, container.doc)
+    },
+    transaction: function(transfers) {
+        return Q.all(transfers.map(function(transfer) {
+            var example = {
+                inventory: 'uuid',
+                slice: 'uuid',
+                quantity: 5,
+                blueprint: {},
+                ship_uuid: 'uuid' // only for unpacked ships and quantity must == -1 or 1
+            }
+            var example_container = {
+                uuid: 'uuid',
+                container_action: 'create|destroy',
+                blueprint: 'uuid'
+            }
+
+            return dao.get(transfer.inventory).then(function(data) {
+                var slot
+                var inventory = data.doc,
+                    quantity = transfer.quantity,
+                    sliceID = transfer.slice
+
+                var type = transfer.blueprint.uuid
+
+                if (inventory === undefined || type === undefined) {
+                    throw new C.http.Error(422, "no_such_reference", {
+                        name: "inventory",
+                        inventory: transfer.inventory,
+                        blueprint: transfer.blueprint
+                    })
+                }
+
+                if (transfer.blueprint.type == "spaceship") {
+                    slot = "hanger"
+
+                    if (inventory[slot][sliceID] === undefined) {
+                        inventory[slot][sliceID] = {
+                            unpacked: []
+                        }
+                    }
+                } else {
+                    slot = "cargo"
+
+                    if (inventory[slot][sliceID] === undefined) {
+                        inventory[slot][sliceID] = {}
+                    }
+                }
+
+                var slice = inventory[slot][sliceID]
+                var volume = quantity * transfer.blueprint.volume
+                var final_volume = inventory.usage[slot] + volume
+
+                if (final_volume > inventory.capacity[slot]) {
+                    throw new C.http.Error(409, "not_enough_space", {
+                        inventory: data.id,
+                        final_volume: final_volume,
+                        capacity: inventory.capacity[slot]
+                    })
+                }
+
+                if (transfer.ship_uuid !== undefined) {
+                    var list = slice.unpacked
+                    if (quantity > 0) {
+                        list.push(transfer.ship_uuid)
+
+                        ships[transfer.blueprint.uuid].location = transfer.inventory
+                        ships[transfer.blueprint.uuid].slice = transfer.slice
+                    } else {
+                        var i = list.indexOf(transfer.ship_uuid)
+                        var shipRecord = ships[transfer.ship_uuid]
+
+                        if (i == -1 || shipRecord.location !== transfer.inventory || shipRecord.slice !== transfer.slice) {
+                            throw new C.http.Error(422, "no_such_reference", {
+                                name: "ship_uuid",
+                                ship_uuid: transfer.ship_uuid
+                            })
+                        } else {
+                            list.splice(i, 1)
+                        }
+                    }
+                } else {
+                    if (slice[type] === undefined) {
+                        slice[type] = 0
+                    }
+
+                    var result = slice[type] + transfer.quantity
+
+                    if (result < 0) {
+                        throw new C.http.Error(409, "invalid_transaction", {
+                            reason: "Not enough cargo present",
+                            blueprint: type,
+                            desired: transfer.quantity,
+                            contents: slice
+                        })
+                    }
+
+                    slice[type] = result
+                }
+
+                inventory.usage[slot] = final_volume
+
+                return dao.update(transfer.inventory, inventory)
+            })
+        }))
+    },
     router: function(app) {
         // NOTE /containers endpoints are restricted to spodb and production api
         app.delete('/containers/:uuid', function(req, res) {
@@ -70,11 +191,36 @@ module.exports = {
             }).fail(C.http.errHandler(req, res, error)).done()
         })
 
+        app.post('/spawn', function(req, res) {
+            var data = req.body /* = {
+                uuid: 'uuid',
+                blueprint: 'uuid',
+                transactions: []
+            } */
+            debug(data)
+
+            Q.spread([blueprints.getData(), C.http.authorize_req(req, true)], function(blueprints, auth) {
+                var blueprint = blueprints[data.blueprint]
+                return buildContainer(data.uuid, auth.account, blueprint).
+                    then(function() {
+                        var list = data.transactions
+                        list.forEach(function(t) { t.blueprint = blueprints[t.blueprint] })
+                        return self.transaction(list)
+                    }).then(function() {
+                        if (blueprint.production !== undefined) {
+                            return production.updateFacility(data.uuid, blueprint, auth.account)
+                        }
+                    })
+            }).then(function() {
+                res.sendStatus(204)
+            }).fail(C.http.errHandler(req, res, error)).done()
+        })
+
         app.post('/containers/:uuid', function(req, res) {
             var uuid = req.param('uuid'),
             blueprintID = req.param('blueprint')
 
-            Q.spread([C.getBlueprints(), C.http.authorize_req(req, true), dao.get(uuid)], function(blueprints, auth, container) {
+            Q.spread([blueprints.getData(), C.http.authorize_req(req, true), dao.get(uuid)], function(blueprints, auth, container) {
                 var blueprint = blueprints[blueprintID]
 
                 if (blueprint === undefined) {
@@ -84,7 +230,7 @@ module.exports = {
                     })
                 } else if (container !== undefined) {
                     if (containerAuthorized(container, auth)) {
-                        updateContainer(container, blueprint).
+                        self.updateContainer(container, blueprint).
                             then(function() {
                                 res.sendStatus(204)
                             })
@@ -105,21 +251,6 @@ module.exports = {
             if (!result)
                 debug(auth.account, 'not granted access to', container)
             return result
-        }
-
-        function updateContainer(container, newBlueprint) {
-            var i = container.doc,
-                b = newBlueprint
-
-            debug(i)
-
-            i.blueprint = newBlueprint.uuid
-            i.capacity.cargo = b.inventory_capacity
-            i.capacity.hanger = b.hanger_capacity
-
-            debug(i)
-
-            return dao.update(container.id, container.doc)
         }
 
         function buildContainer(uuid, account, blueprint) {
@@ -171,7 +302,7 @@ module.exports = {
         })
 
         app.post('/ships/:uuid', function(req, res) {
-            Q.spread([C.getBlueprints(), C.http.authorize_req(req, true)], function(blueprints, auth) {
+            Q.spread([blueprints.getData(), C.http.authorize_req(req, true)], function(blueprints, auth) {
                 var uuid = req.param('uuid')
                 var ship = ships[uuid]
 
@@ -194,7 +325,7 @@ module.exports = {
                             return res.sendStatus(401)
                         }
 
-                        executeTransfers([{
+                        self.transaction([{
                                 ship_uuid: uuid,
                                 quantity: -1, // undock
                                 inventory: ship.location,
@@ -206,7 +337,7 @@ module.exports = {
                             return res.sendStatus(401)
                         }
 
-                        executeTransfers([{
+                        self.transaction([{
                                 ship_uuid: uuid,
                                 quantity: 1, // dock
                                 inventory: req.body.location,
@@ -237,7 +368,7 @@ module.exports = {
                 sliceID = req.param('slice'),
                 blueprintID = req.param('blueprint')
 
-            Q.spread([C.getBlueprints(), C.http.authorize_req(req), dao.get(inventoryID)], function(blueprints, auth, inventory) {
+            Q.spread([blueprints.getData(), C.http.authorize_req(req), dao.get(inventoryID)], function(blueprints, auth, inventory) {
                 if (!containerAuthorized(inventoryID, auth)) {
                     return res.sendStatus(401)
                 }
@@ -294,7 +425,7 @@ module.exports = {
         app.post('/inventory', function(req, res) {
             debug(req.body)
 
-            Q.spread([C.getBlueprints(), C.http.authorize_req(req)], function(blueprints, auth) {
+            Q.spread([blueprints.getData(), C.http.authorize_req(req)], function(blueprints, auth) {
                 var dataset = req.body,
                     transactions = [],
                     containers = [],
@@ -450,116 +581,11 @@ module.exports = {
                         }
                     }))
                 }).then(function() {
-                    return executeTransfers(transactions)
+                    return self.transaction(transactions)
                 }).then(function() {
                     res.sendStatus(204)
                 })
             }).fail(C.http.errHandler(req, res, error)).done()
         })
-
-        // TODO if there is not enough room, the transaction will fail unbalanced
-        function executeTransfers(transfers) {
-            return Q.all(transfers.map(function(transfer) {
-                var example = {
-                    inventory: 'uuid',
-                    slice: 'uuid',
-                    quantity: 5,
-                    blueprint: {},
-                    ship_uuid: 'uuid' // only for unpacked ships and quantity must == -1 or 1
-                }
-                var example_container = {
-                    uuid: 'uuid',
-                    container_action: 'create|destroy',
-                    blueprint: 'uuid'
-                }
-
-                return dao.get(transfer.inventory).then(function(data) {
-                    var slot
-                    var inventory = data.doc,
-                        quantity = transfer.quantity,
-                        sliceID = transfer.slice
-
-                    var type = transfer.blueprint.uuid
-
-                    if (inventory === undefined) {
-                        throw new C.http.Error(422, "no_such_reference", {
-                            name: "inventory",
-                            inventory: transfer.inventory
-                        })
-                    }
-
-                    if (transfer.blueprint.type == "spaceship") {
-                        slot = "hanger"
-
-                        if (inventory[slot][sliceID] === undefined) {
-                            inventory[slot][sliceID] = {
-                                unpacked: []
-                            }
-                        }
-                    } else {
-                        slot = "cargo"
-
-                        if (inventory[slot][sliceID] === undefined) {
-                            inventory[slot][sliceID] = {}
-                        }
-                    }
-
-                    var slice = inventory[slot][sliceID]
-                    var volume = quantity * transfer.blueprint.volume
-                    var final_volume = inventory.usage[slot] + volume
-
-                    if (final_volume > inventory.capacity[slot]) {
-                        throw new C.http.Error(409, "not_enough_space", {
-                            inventory: data.id,
-                            final_volume: final_volume,
-                            capacity: inventory.capacity[slot]
-                        })
-                    }
-
-                    if (transfer.ship_uuid !== undefined) {
-                        var list = slice.unpacked
-                        if (quantity > 0) {
-                            list.push(transfer.ship_uuid)
-
-                            ships[transfer.blueprint.uuid].location = transfer.inventory
-                            ships[transfer.blueprint.uuid].slice = transfer.slice
-                        } else {
-                            var i = list.indexOf(transfer.ship_uuid)
-                            var shipRecord = ships[transfer.ship_uuid]
-
-                            if (i == -1 || shipRecord.location !== transfer.inventory || shipRecord.slice !== transfer.slice) {
-                                throw new C.http.Error(422, "no_such_reference", {
-                                    name: "ship_uuid",
-                                    ship_uuid: transfer.ship_uuid
-                                })
-                            } else {
-                                list.splice(i, 1)
-                            }
-                        }
-                    } else {
-                        if (slice[type] === undefined) {
-                            slice[type] = 0
-                        }
-
-                        var result = slice[type] + transfer.quantity
-
-                        if (result < 0) {
-                            throw new C.http.Error(409, "invalid_transaction", {
-                                reason: "Not enough cargo present",
-                                blueprint: type,
-                                desired: transfer.quantity,
-                                contents: slice
-                            })
-                        }
-
-                        slice[type] = result
-                    }
-
-                    inventory.usage[slot] = final_volume
-
-                    return dao.update(transfer.inventory, inventory)
-                })
-            }))
-        }
     }
 }

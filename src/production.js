@@ -12,26 +12,8 @@ var uuidGen = require('node-uuid'),
 
 var dao = require('./dao.js'),
     pubsub = require('./pubsub.js'),
+    blueprints = require('./blueprints.js'),
     inventory = require('./inventory.js')
-
-function updateFacility(uuid, blueprint, account) {
-    if (blueprint.production === undefined) {
-        throw new Error(uuid+" is not a production facility")
-    }
-
-    return dao.facilities.upsert(uuid, {
-        blueprint: blueprint.uuid, 
-        account: account,
-        resources: blueprint.production.generate
-    }).then(function() {
-        pubsub.publish({
-            type: 'facility',
-            account: account,
-            uuid: uuid,
-            blueprint: blueprint.uuid,
-        })
-    })
-}
 
 function destroyFacility(uuid) {
     return dao.facilities.get(uuid).then(function(facility) {
@@ -51,26 +33,24 @@ function destroyFacility(uuid) {
 }
 
 function consume(account, uuid, slice, type, quantity) {
-    return C.updateInventory(account, [{
-        inventory: uuid,
-        slice: slice,
-        blueprint: type,
-        quantity: (quantity * -1)
-    }])
+    return blueprints.getData().then(function(blueprints) {
+        return inventory.transaction([{
+            inventory: uuid,
+            slice: slice,
+            blueprint: blueprints[type],
+            quantity: (quantity * -1)
+        }])
+    })
 }
 
 function produce(account, uuid, slice, type, quantity) {
-    return C.updateInventory(account, [{
-        inventory: uuid,
-        slice: slice,
-        blueprint: type,
-        quantity: quantity
-    }]).tap(C.qDebug('produce'))
-}
-
-function updateInventoryContainer(uuid, blueprint, account) {
-    return C.request('tech', 'POST', 204, '/containers'+uuid, {
-        blueprint: blueprint
+    return blueprints.getData().then(function(blueprints) {
+        return inventory.transaction([{
+            inventory: uuid,
+            slice: slice,
+            blueprint: blueprints[type],
+            quantity: quantity
+        }])
     })
 }
 
@@ -78,7 +58,7 @@ function fullfillResources(data) {
     var job = data.doc
 
     return Q.all([
-        C.getBlueprints(),
+        blueprints.getData(),
         dao.jobs.flagNextStatus(data.id, "resourcesFullfilled")
     ]).spread(function(blueprints) {
         var blueprint = blueprints[job.blueprint]
@@ -142,7 +122,7 @@ function deliverJob(job) {
                 return C.request('3dsim', 'POST', 204, '/spodb/'+job.facility, {
                     blueprint: job.blueprint })
             }).then(function() {
-                return C.getBlueprints().then(function(blueprints) {
+                return blueprints.getData().then(function(blueprints) {
                     var blueprint = blueprints[job.blueprint]
 
                     // If a scaffold was upgraded to a non-production
@@ -150,10 +130,10 @@ function deliverJob(job) {
                     if (blueprint.production === undefined) {
                         return destroyFacility(job.facility)
                     } else {
-                        return updateFacility(job.facility, blueprint, job.account)
+                        return self.updateFacility(job.facility, blueprint, job.account)
                     }
                 }).then(function() {
-                    return updateInventoryContainer(job.facility, job.blueprint, job.account)
+                    return inventory.updateContainer(job.facility, job.blueprint)
                 })
             })
     }
@@ -286,7 +266,8 @@ var buildWorker = setInterval(function() {
     }).all().done()
 }, 1000) // TODO don't let runs overlap
 
-module.exports = {
+var self = module.exports = {
+    updateFacility: require('./production_dep.js').updateFacility,
     router: function(app) {
         app.get('/jobs/:uuid', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
@@ -323,7 +304,7 @@ module.exports = {
 
             job.uuid = uuidGen.v1()
 
-            Q.spread([C.getBlueprints(), C.http.authorize_req(req), dao.facilities.get(job.facility)], function(blueprints, auth, facility) {
+            Q.spread([blueprints.getData(), C.http.authorize_req(req), dao.facilities.get(job.facility)], function(blueprints, auth, facility) {
                 if (facility === undefined) {
                     return res.status(404).send("no such facility: " + job.facility)
                 }
@@ -401,11 +382,11 @@ module.exports = {
                 })
             })
 
-            Q.spread([C.getBlueprints(), authP, inventoryP], function(blueprints, auth, inventory) {
+            Q.spread([blueprints.getData(), authP, inventoryP], function(blueprints, auth, container) {
                 var blueprint = blueprints[req.body.blueprint]
 
-                if (blueprint && inventory.blueprint == blueprint.uuid) {
-                    return updateFacility(uuid, blueprint, auth.account).then(function() {
+                if (blueprint && container.blueprint == blueprint.uuid) {
+                    return self.updateFacility(uuid, blueprint, auth.account).then(function() {
                         res.status(201).send({
                             facility: {
                                 uuid: uuid
