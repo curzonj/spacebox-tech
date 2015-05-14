@@ -7,116 +7,12 @@ var uuidGen = require('node-uuid'),
     error = npm_debug('build:error'),
     debug = npm_debug('build:debug'),
     Q = require('q'),
-    qhttp = require("q-io/http"),
-    pubsub = require('./pubsub.js'),
     db = require('spacebox-common-native').db,
     C = require('spacebox-common')
 
-var dao = {
-    facilities: {
-        all: function(account) {
-            if (account === undefined) {
-                return db.query('select * from facilities')
-            } else {
-                return db.query('select * from facilities where account = $1', [ account ])
-            }
-        },
-        needAttention: function() {
-            return db.query('select * from facilities where trigger_at is null or trigger_at < current_timestamp')
-        },
-        upsert: function(uuid, doc) {
-            return db.query('update facilities set blueprint = $2, account = $3, resources = $4 where id =$1 returning id', [ uuid, doc.blueprint, doc.account, doc.resources ]).
-                then(function(data) {
-                    debug(data)
-                    if (data.length === 0) {
-                        return db.
-                            query('insert into facilities (id, blueprint, account, resources) values ($1, $2, $3, $4)', [ uuid, doc.blueprint, doc.account, doc.resources ])
-                    }
-                })
-        },
-        destroy: function(uuid) {
-            return db.
-                query("delete from facilities where id=$1", [ uuid ])
-        },
-        get: function(uuid) {
-            return db.
-                query("select * from facilities where id=$1", [ uuid ]).
-                then(function(data) {
-                    return data[0]
-                })
-        }
-    
-    },
-    jobs: {
-        all: function(account) {
-            if (account === undefined) {
-                return db.query("select * from jobs")
-            } else {
-                return db.query("select * from jobs where account=$1", [ account ])
-            }
-        },
-        get: function(uuid, account) {
-            return db.
-                query("select * from jobs where id=$1 and account=$1", [ uuid, account ]).
-                then(function(data) {
-                    return data[0]
-                })
-        },
-        queue: function(doc) {
-            return db.
-                query("insert into jobs (id, facility_id, account, doc, status, statusCompletedAt, createdAt, trigger_at) values ($1, $2, $3, $4, $5, current_timestamp, current_timestamp, current_timestamp)", [ doc.uuid, doc.facility, doc.account, doc, "queued" ])
-        
-        },
-        nextJob: function(facility_id) {
-            return db.
-                query("with thenextjob as (select * from jobs where facility_id = $1 and status != 'delivered' order by createdAt limit 1) select * from thenextjob where next_status is null and trigger_at < current_timestamp", [ facility_id ]).
-                then(function(data) {
-                    return data[0]
-                })
-        },
-        destroy: function(uuid) {
-            return db.
-                query("delete from jobs where id =$1", [ uuid ])
-        },
-        flagNextStatus: function(uuid, status) {
-            return db.
-                query("update jobs set next_status = $2, nextStatusStartedAt = current_timestamp where nextStatusStartedAt is null and id = $1 returning id", [ uuid, status ]).
-                then(function(data) {
-                    if (data.length === 0) {
-                        throw("failed to lock job "+uuid+" for "+status)
-                    }
-                })
-        },
-        completeStatus: function(uuid, status, doc, trigger_at) {
-            if (moment.isMoment(trigger_at)) {
-                trigger_at = trigger_at.toDate()
-            }
-
-            return db.
-                query("update jobs set status = next_status, statusCompletedAt = current_timestamp, next_status = null, nextStatusStartedAt = null, doc = $3, trigger_at = $4 where id = $1 and next_status = $2 returning id", [ uuid, status, doc, trigger_at ]).
-                then(function(data) {
-                    if (data.length === 0) {
-                        throw("failed to transition job "+uuid+" to "+status)
-                    }
-                })
-        },
-        failNextStatus: function(uuid, status) {
-            return db.
-                query("update jobs set next_status = null, nextStatusStartedAt = null, next_backoff = next_backoff * 2, trigger_at = current_timestamp + next_backoff where id = $1 and next_status = $2 returning id", [ uuid, status ]).
-                then(function(data) {
-                    if (data.length === 0) {
-                        throw("failed to fail job transition "+uuid+" to "+status)
-                    }
-                })
-        }
-    }
-}
-
-function hashForEach(obj, fn) {
-    for (var k in obj) {
-        fn(k, obj[k])
-    }
-}
+var dao = require('./dao.js'),
+    pubsub = require('./pubsub.js'),
+    inventory = require('./inventory.js')
 
 function updateFacility(uuid, blueprint, account) {
     if (blueprint.production === undefined) {
@@ -173,26 +69,8 @@ function produce(account, uuid, slice, type, quantity) {
 }
 
 function updateInventoryContainer(uuid, blueprint, account) {
-    return C.getAuthToken().then(function(token) {
-        return qhttp.request({
-            method: "POST",
-            url: process.env.INVENTORY_URL + '/containers/' + uuid,
-            headers: {
-                "Authorization": "Bearer " + token + '/' + account,
-                "Content-Type": "application/json"
-            },
-            body: [JSON.stringify({
-                blueprint: blueprint
-            })]
-        }).then(function(resp) {
-            if (resp.status !== 204) {
-                resp.body.read().then(function(b) {
-                    error("inventory " + resp.status + " reason: " + b.toString())
-                }).done()
-
-                throw new Error("inventory responded with " + resp.status)
-            }
-        })
+    return C.request('tech', 'POST', 204, '/containers'+uuid, {
+        blueprint: blueprint
     })
 }
 
@@ -408,137 +286,136 @@ var buildWorker = setInterval(function() {
     }).all().done()
 }, 1000) // TODO don't let runs overlap
 
-module.exports = function(app) {
-    app.get('/jobs/:uuid', function(req, res) {
-        C.http.authorize_req(req).then(function(auth) {
-            return dao.jobs.get(req.param('uuid'), auth.account).
-                then(function(data) {
-                    res.send(data)
-                })
-        }).fail(C.http.errHandler(req, res, error)).done()
-    })
-
-    app.get('/jobs', function(req, res) {
-        C.http.authorize_req(req).then(function(auth) {
-            return dao.jobs.
-                all(auth.privileged && req.param('all') == 'true' ? undefined : auth.account).
-                then(function(data) {
-                    res.send(data)
-                })
+module.exports = {
+    router: function(app) {
+        app.get('/jobs/:uuid', function(req, res) {
+            C.http.authorize_req(req).then(function(auth) {
+                return dao.jobs.get(req.param('uuid'), auth.account).
+                    then(function(data) {
+                        res.send(data)
+                    })
+            }).fail(C.http.errHandler(req, res, error)).done()
         })
-    })
 
-    // players cancel jobs
-    app.delete('/jobs/:uuid', function(req, res) {
-        // does the user get the resources back?
-        // not supported yet
-        res.sendStatus(404)
-    })
+        app.get('/jobs', function(req, res) {
+            C.http.authorize_req(req).then(function(auth) {
+                return dao.jobs.
+                    all(auth.privileged && req.param('all') == 'true' ? undefined : auth.account).
+                    then(function(data) {
+                        res.send(data)
+                    })
+            })
+        })
 
-    // players queue jobs
-    app.post('/jobs', function(req, res) {
-        debug(req.body)
+        // players cancel jobs
+        app.delete('/jobs/:uuid', function(req, res) {
+            // does the user get the resources back?
+            // not supported yet
+            res.sendStatus(404)
+        })
 
-        var job = req.body
-        var duration = -1
+        // players queue jobs
+        app.post('/jobs', function(req, res) {
+            debug(req.body)
 
-        job.uuid = uuidGen.v1()
+            var job = req.body
+            var duration = -1
 
-        Q.spread([C.getBlueprints(), C.http.authorize_req(req), dao.facilities.get(job.facility)], function(blueprints, auth, facility) {
-            if (facility === undefined) {
-                return res.status(404).send("no such facility: " + job.facility)
-            }
+            job.uuid = uuidGen.v1()
 
-            // Must wait until we have the auth response to check authorization
-            // TODO come up with a better means of authorization
-            if (facility.account != auth.account) {
-                return res.status(401).send("not authorized to access that facility")
-            }
-
-            var facilityType = blueprints[facility.blueprint]
-            var canList = facilityType.production[job.action]
-            var blueprint = blueprints[job.blueprint]
-
-            if (canList === undefined || !canList.some(function(e) {
-                return e.item == blueprint.uuid
-            })) {
-                debug(canList)
-                debug(job.blueprint)
-
-                return res.status(400).send("facility is unable to produce that")
-            }
-
-            if (job.action == "refine") {
-                job.outputs = blueprint.refine.outputs
-
-                job.duration = blueprint.refine.time
-            } else {
-                job.duration = blueprint.build.time
-
-                if (job.action == "construct") {
-                    job.quantity = 1
+            Q.spread([C.getBlueprints(), C.http.authorize_req(req), dao.facilities.get(job.facility)], function(blueprints, auth, facility) {
+                if (facility === undefined) {
+                    return res.status(404).send("no such facility: " + job.facility)
                 }
-            }
 
-            job.account = auth.account
+                // Must wait until we have the auth response to check authorization
+                // TODO come up with a better means of authorization
+                if (facility.account != auth.account) {
+                    return res.status(401).send("not authorized to access that facility")
+                }
 
-            return dao.jobs.queue(job).then(function() {
-                res.status(201).send({
-                    job: {
-                        uuid: job.uuid
+                var facilityType = blueprints[facility.blueprint]
+                var canList = facilityType.production[job.action]
+                var blueprint = blueprints[job.blueprint]
+
+                if (canList === undefined || !canList.some(function(e) {
+                    return e.item == blueprint.uuid
+                })) {
+                    debug(canList)
+                    debug(job.blueprint)
+
+                    return res.status(400).send("facility is unable to produce that")
+                }
+
+                if (job.action == "refine") {
+                    job.outputs = blueprint.refine.outputs
+
+                    job.duration = blueprint.refine.time
+                } else {
+                    job.duration = blueprint.build.time
+
+                    if (job.action == "construct") {
+                        job.quantity = 1
                     }
-                })
-            })
-        }).fail(C.http.errHandler(req, res, error)).done()
-    })
+                }
 
-    app.get('/facilities', function(req, res) {
-        C.http.authorize_req(req).then(function(auth) {
-            if (auth.privileged && req.param('all') == 'true') {
-                return dao.facilities.all()
-            } else {
-                return dao.facilities.all(auth.account)
-            }
-        }).then(function(list) {
-            res.send(list)
-        }).fail(C.http.errHandler(req, res, error)).done()
-    })
+                job.account = auth.account
 
-    // When a ship or production structure is destroyed
-    app.delete('/facilities/:uuid', function(req, res) {
-        destroyFacility(req.param('uuid')).then(function() {
-            res.sendStatus(204)
-        }).fail(C.http.errHandler(req, res, error)).done()
-
-    })
-
-    app.post('/facilities/:uuid', function(req, res) {
-        var uuid = req.param('uuid')
-
-        var authP = C.http.authorize_req(req, true)
-        var inventoryP = authP.then(function(auth) {
-            // This verifies that the inventory exists and
-            // is owned by the same account
-            return C.request('inventory', 'GET', 200, '/inventory/'+uuid, undefined, {
-                sudo_account: auth.account
-            })
-        })
-
-        Q.spread([C.getBlueprints(), authP, inventoryP], function(blueprints, auth, inventory) {
-            var blueprint = blueprints[req.body.blueprint]
-
-            if (blueprint && inventory.blueprint == blueprint.uuid) {
-                return updateFacility(uuid, blueprint, auth.account).then(function() {
+                return dao.jobs.queue(job).then(function() {
                     res.status(201).send({
-                        facility: {
-                            uuid: uuid
+                        job: {
+                            uuid: job.uuid
                         }
                     })
                 })
-            } else {
-                res.status(400).send("no such blueprint")
-            }
-        }).fail(C.http.errHandler(req, res, error)).done()
-    })
-}
+            }).fail(C.http.errHandler(req, res, error)).done()
+        })
 
+        app.get('/facilities', function(req, res) {
+            C.http.authorize_req(req).then(function(auth) {
+                if (auth.privileged && req.param('all') == 'true') {
+                    return dao.facilities.all()
+                } else {
+                    return dao.facilities.all(auth.account)
+                }
+            }).then(function(list) {
+                res.send(list)
+            }).fail(C.http.errHandler(req, res, error)).done()
+        })
+
+        // When a ship or production structure is destroyed
+        app.delete('/facilities/:uuid', function(req, res) {
+            destroyFacility(req.param('uuid')).then(function() {
+                res.sendStatus(204)
+            }).fail(C.http.errHandler(req, res, error)).done()
+
+        })
+
+        app.post('/facilities/:uuid', function(req, res) {
+            var uuid = req.param('uuid')
+
+            var authP = C.http.authorize_req(req, true)
+            var inventoryP = authP.then(function(auth) {
+                return inventory.dao.get(uuid).then(function(data) {
+                    return data.doc
+                })
+            })
+
+            Q.spread([C.getBlueprints(), authP, inventoryP], function(blueprints, auth, inventory) {
+                var blueprint = blueprints[req.body.blueprint]
+
+                if (blueprint && inventory.blueprint == blueprint.uuid) {
+                    return updateFacility(uuid, blueprint, auth.account).then(function() {
+                        res.status(201).send({
+                            facility: {
+                                uuid: uuid
+                            }
+                        })
+                    })
+                } else {
+                    res.status(400).send("no such blueprint")
+                }
+            }).fail(C.http.errHandler(req, res, error)).done()
+        })
+    }
+}

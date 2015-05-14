@@ -24,9 +24,9 @@ app.use(logger('dev'))
 app.use(bodyParser.json())
 app.use(bodyParser.urlencoded({ extended: false }))
 
-require('./blueprints.js')(app)
-require('./inventory.js')(app)
-require('./production.js')(app)
+require('./blueprints.js').router(app)
+require('./inventory.js').router(app)
+require('./production.js').router(app)
 
 var server = http.createServer(app)
 server.listen(port)
