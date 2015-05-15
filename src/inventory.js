@@ -67,16 +67,8 @@ var self = module.exports = {
                     ship_uuid: 'uuid' // only for unpacked ships, quantity is ignored
                 }
 
-                console.log('transfer', transfer)
-
                 var next = Q(null),
                     t = transfer
-
-                next = next.then(function() {
-                    return db.any("select * from ships").then(function(data) {
-                        console.log('current ships', data)
-                    })
-                })
 
                 if (transfer.ship_uuid !== undefined) {
                     next = next.then(function() {
@@ -113,14 +105,7 @@ var self = module.exports = {
 
                 if (transfer.ship_uuid === undefined || transfer.inventory !== null) {
                     next = next.then(function() {
-                        return dao.get(transfer.inventory).tap(function(data) {
-                            if (data === undefined) {
-                                throw new C.http.Error(422, "no_such_reference", {
-                                    name: "inventory",
-                                    inventory: transfer.inventory
-                                })
-                            }
-                        })
+                        return db.one("select * from inventories where id = $1 for update", transfer.inventory)
                     }).then(function(data) {
                         var inventory = data.doc,
                             quantity = transfer.quantity,
@@ -168,7 +153,7 @@ var self = module.exports = {
 
                         inventory.usage[slot] = final_volume
 
-                        return dao.update(transfer.inventory, inventory)
+                        return dao.update(transfer.inventory, inventory, db)
                     })
                 }
                     
@@ -201,7 +186,7 @@ var self = module.exports = {
                                     res.sendStatus(204)
                                 })
                             } else {
-                                throw new C.http.Error(401, "not_authorized", {
+                                throw new C.http.Error(403, "not_authorized", {
                                     account: auth,
                                     container: container
                                 })
@@ -324,70 +309,88 @@ var self = module.exports = {
             }).fail(C.http.errHandler(req, res, error)).done()
         })
 
+
         // This is how spodb docks/undocks and updates ship status
         app.post('/ships/:uuid', function(req, res) {
-            Q.spread([blueprints.getData(),
-                     C.http.authorize_req(req, true),
-                     db.query("select * from ships where id = $1", [ req.param('uuid') ]) // TODO SELECT FOR UPDATE
-            ], function(blueprints, auth, data) {
-                var ship = data[0]
+            db.tx(function(db) {
+                return Q.spread([blueprints.getData(),
+                    C.http.authorize_req(req, true),
+                ], function(blueprints, auth) {
+                    return db.one("select * from ships where id = $1 and account = $2 for update", [ req.param('uuid'), auth.account ]).
+                        then(function(ship) {
+                            var where
+                            if (ship.container_id === null) {
+                                where = [ req.body.inventory, auth.account ]
+                            } else {
+                                where = [ ship.container_id, auth.account ]
+                            }
 
-                debug(ship)
-                debug(req.body)
+                            return Q.all([
+                                blueprints,
+                                auth,
+                                ship,
+                                db.one("select * from inventories where id = $1 and account = $2", where)
+                            ])
+                        })
+                }).spread(function(blueprints, auth, ship, container) {
+                    debug('ship', ship)
+                    debug('container', container)
+                    debug('request', req.body)
 
-                if (ship === undefined) {
-                    return res.sendStatus(404)
-                }
+                    if (!containerAuthorized(container, auth)) {
+                        throw new C.http.Error(403, "not_authorized", {
+                            account: auth,
+                            container: container
+                        })
+                    }
 
-                var transaction = {
-                    current_location: ship.container_id,
-                    current_slice: ship.container_slice,
-                    ship_uuid: ship.id,
-                    blueprint: blueprints[ship.doc.blueprint]
-                }
+                    var transaction = {
+                        current_location: ship.container_id,
+                        current_slice: ship.container_slice,
+                        ship_uuid: ship.id,
+                        blueprint: blueprints[ship.doc.blueprint]
+                    }
 
-                switch(req.body.status) {
-                    case 'undocked':
-                        if (ship.status !== 'docked')
-                            throw new C.http.Error(409, "invalid_state_change", {
-                                name: "ship",
-                                ship: ship,
-                            })
+                    switch(req.body.status) {
+                        case 'undocked':
+                            if (ship.status !== 'docked')
+                                throw new C.http.Error(409, "invalid_state_change", {
+                                    name: "ship",
+                                    ship: ship,
+                                })
 
                             C.deepMerge({
                                 required_status: 'docked',
                                 inventory: null,
                                 slice: null
                             }, transaction)
-                        break
-                    case 'docked':
-                        if (ship.status !== 'undocked')
-                            throw new C.http.Error(409, "invalid_state_change", {
-                                name: "ship",
-                                ship: ship,
-                            })
+                            break
+                        case 'docked':
+                            if (ship.status !== 'undocked')
+                                throw new C.http.Error(409, "invalid_state_change", {
+                                    name: "ship",
+                                    ship: ship,
+                                })
 
-                        C.deepMerge({
-                            required_status: 'undocked',
-                            inventory: req.body.inventory,
-                            slice: req.body.slice,
-                        }, transaction)
-                        break
-                }
+                            C.deepMerge({
+                                required_status: 'undocked',
+                                inventory: req.body.inventory,
+                                slice: req.body.slice,
+                            }, transaction)
+                            break
+                        default:
+                            throw new C.http.Error(422, "invalid_state_change")
+                    }
 
-                // by using the transaction function we make sure that the inventory
-                // usage is checked and updated in a single place
-                return self.transaction([transaction]).
-                then(function() {
-                    return db.query("update ships set status = $2, doc = $3 where id = $1 and status = $4",
-                            [ ship.id, req.body.status, C.deepMerge(req.body.stats, ship.doc), transaction.required_status ]).
-                        then(function(data) {
-                            if (data.length === 0) // this means that the ship didn't match the where conditions
-                                throw "the ship moved during the dock/undock process"
-                        })
-                
-                }).then(function() {
-                    res.sendStatus(204)
+                    // by using the transaction function we make sure that the inventory
+                    // usage is checked and updated in a single place
+                    return self.transaction([transaction], db).
+                    then(function() {
+                        return db.one("update ships set status = $2, doc = $3 where id = $1 and status = $4 returning *",
+                                [ ship.id, req.body.status, C.deepMerge(req.body.stats || {}, ship.doc), transaction.required_status ])
+                    }).then(function(ship) {
+                        res.send(ship)
+                    })
                 })
             }).fail(C.http.errHandler(req, res, error)).done()
         })
