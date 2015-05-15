@@ -80,19 +80,39 @@ function fullfillResources(data) {
                     return consume(db, job.account, job.facility, job.slice, job.blueprint, job.quantity)
                 case 'refit':
                     debug(job)
-                    return Q.all(job.modules.map(function(key) {
-                        return consume(db, job.account, job.facility, job.slice, key, 1)
-                    })).then(function() {
-                        if(blueprint.type == 'structure') {
-                            if (job.facility != job.target)
-                                throw("a structure can only refit itself")
-                        } else if(blueprint.type === 'spaceship') {
-                            return db.
-                                one("update ships set status = 'refitting' where id = $1 and container_id = $2 and container_slice = $3 and status = 'docked' returning id",
-                                    [ job.target, job.facility, job.slice ])
-                        } else {
-                            throw("unknown type for refitting: "+blueprint.type)
-                        }
+
+                    var next = Q(null)
+
+                    if(blueprint.type === 'spaceship') {
+                        next = next.then(function() {
+                            db.
+                            one("update ships set status = 'refitting' where id = $1 and container_id = $2 and container_slice = $3 and status = 'docked' returning id",
+                                [ job.target, job.facility, job.slice ])
+                        })
+                    } else if(blueprint.type == 'structure') {
+                        if (job.facility != job.target)
+                            throw("a structure can only refit itself")
+                    } else {
+                        throw("unknown type for refitting: "+blueprint.type)
+                    }
+
+                    return next.then(function() {
+                        return inventory.dao.get(job.target, db)
+                    }).then(function(row) {
+                        var current_modules = row.doc.modules.slice()
+                        debug("current modules", current_modules)
+                        debug("current cargo", row.doc.cargo)
+
+                        return job.modules.reduce(function(next, key) {
+                            return next.then(function() {
+                                var i = current_modules.indexOf(key)
+                                if (i > -1) {
+                                    current_modules.splice(i, 1)
+                                } else {
+                                    return consume(db, job.account, job.facility, job.slice, key, 1)
+                                }
+                            })
+                        }, Q(null))
                     })
                 default:
                     debug(blueprint)
@@ -133,9 +153,26 @@ function deliverJob(job, db) {
 
             return db.one("select * from inventories where id = $1 for update", job.target).
             then(function(container) {
-                return blueprints.getData().then(function(blueprints) {
+                var current_modules = container.doc.modules.slice(),
+                    job_modules = job.modules.slice()
+
+                var left_overs = current_modules.reduce(function(next, key) {
+                    return next.then(function(list) {
+                        var i = job_modules.indexOf(key)
+                        if (i > -1) {
+                            job_modules.splice(i, 1)
+                        } else {
+                            // if it wasn't needed for the job we'll return it
+                            list.push(key)
+                        }
+
+                        return list
+                    })
+                }, Q([]))
+
+                return Q.spread([ left_overs, blueprints.getData() ], function(left_overs, blueprints) {
                     return inventory.transaction(
-                        container.doc.modules.map(function(mod) {
+                        left_overs.map(function(mod) {
                             return {
                                 inventory: job.facility,
                                 slice: job.slice,
@@ -143,10 +180,18 @@ function deliverJob(job, db) {
                                 blueprint:  blueprints[mod],
                             }
                         }), db)
-                
                 }).then(function() {
-                    container.doc.modules = job.modules.slice()
-                    return inventory.dao.update(job.target, container.doc, db)
+                    // The transaction modified the inventory above if the target is a
+                    // structure, so we have to refetch it
+                    return db.one("select * from inventories where id = $1", job.target).
+                    then(function(container) {
+                        container.doc.modules = job.modules.slice()
+
+                        debug("updated modules", container.doc.modules)
+                        debug("updated inventory", container.doc.cargo)
+
+                        return inventory.dao.update(job.target, container.doc, db)
+                    })
                 })
             }).then(function() {
                 return db.one("update ships set status = 'docked' where id = $1 and status = 'refitting' returning id", job.target).fail(function(e) {
