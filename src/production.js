@@ -73,19 +73,30 @@ function fullfillResources(data) {
 
         log("running " + job.uuid + " at " + job.facility)
 
-        if (job.action == "refine") {
-            return consume(job.account, job.facility, job.slice, job.blueprint, job.quantity)
-        } else {
-            var promises = []
-            debug(blueprint)
-
-            for (var key in blueprint.build.resources) {
-                var count = blueprint.build.resources[key]
-                // TODO do this as a transaction
-                promises.push(consume(job.account, job.facility, job.slice, key, count * job.quantity))
-            }
-
-            return Q.all(promises)
+        switch(job.action) {
+            case 'refine':
+                return consume(job.account, job.facility, job.slice, job.blueprint, job.quantity)
+            case 'refit':
+                debug(job)
+                return Q.all(job.modules.map(function(key) {
+                    return consume(job.account, job.facility, job.slice, key, 1)
+                })).then(function() {
+                    if(blueprint.type === 'spaceship')
+                        return db.
+                            query("update ships set status = 'refitting' where id = $1 and container_id = $2 and container_slice = $3 and status = 'docked' returning id",
+                                [ job.target, job.facility, job.slice ]).
+                            then(function(data) {
+                                    if (data.length === 0) // this means that the ship didn't match the where conditions
+                                        throw "the ship is no longer available for refitting"
+                            })
+                })
+            default:
+                debug(blueprint)
+                return Q.all(Object.keys(blueprint.build.resources).map(function(key) {
+                    var count = blueprint.build.resources[key]
+                    // TODO do this as a transaction
+                    return consume(job.account, job.facility, job.slice, key, count * job.quantity)
+                }))
         }
     }).then(function() {
         var finishAt = moment().add(job.duration * job.quantity, 'seconds')
@@ -101,20 +112,30 @@ function fullfillResources(data) {
 }
 
 function deliverJob(job) {
+    var key,
+        promises = []
+
     switch (job.action) {
         case "manufacture":
             return produce(job.account, job.facility, job.slice, job.blueprint, job.quantity)
 
         case "refine":
-            var promises = []
-
-            for (var key in job.outputs) {
-                var count = job.outputs[key]
                 // TODO do this as a transaction
-                promises.push(produce(job.account, job.facility, job.slice, key, count * job.quantity))
-            }
+            return Q.all(Object.keys(job.outputs).map(function(key) {
+                var count = job.outputs[key]
+                return produce(job.account, job.facility, job.slice, key, count * job.quantity)
+            }))
+        case "refit":
+            debug(job)
 
-            return Q.all(promises)
+            // TODO do this as a transaction
+            return inventory.dao.get(job.target).then(function(data) {
+                return Q.all(job.modules.map(function(key) {
+
+                }))
+            }).then(function() {
+                return db.query("update ships set status = 'docked' where id = $1", [ job.target ])
+            })
         case "construct":
             return Q.fcall(function() {
                 // Updating the facility uuid is because everything
@@ -306,13 +327,18 @@ var self = module.exports = {
 
             Q.spread([blueprints.getData(), C.http.authorize_req(req), dao.facilities.get(job.facility)], function(blueprints, auth, facility) {
                 if (facility === undefined) {
-                    return res.status(404).send("no such facility: " + job.facility)
+                    throw new C.http.Error(404, "no_such_facility", {
+                        msg: "no such facility: " + job.facility,
+                        facility: job.facility
+                    })
                 }
 
                 // Must wait until we have the auth response to check authorization
                 // TODO come up with a better means of authorization
                 if (facility.account != auth.account) {
-                    return res.status(401).send("not authorized to access that facility")
+                    throw new C.http.Error(401, "invalid_job", {
+                        msg: "not authorized to access that facility"
+                    })
                 }
 
                 var facilityType = blueprints[facility.blueprint]
@@ -325,28 +351,49 @@ var self = module.exports = {
                     debug(canList)
                     debug(job.blueprint)
 
-                    return res.status(400).send("facility is unable to produce that")
+                    throw new C.http.Error(422, "invalid_job", {
+                        msg: "facility is unable to produce that"
+                    })
                 }
 
-                if (job.action == "refine") {
-                    job.outputs = blueprint.refine.outputs
 
-                    job.duration = blueprint.refine.time
-                } else {
-                    job.duration = blueprint.build.time
+                var next = Q(null)
 
-                    if (job.action == "construct") {
-                        job.quantity = 1
-                    }
+                switch(job.action) {
+                    case 'refine':
+                        job.outputs = blueprint.refine.outputs
+                        job.duration = blueprint.refine.time
+                        break;
+                    case 'refit':
+                        job.duration = 30
+
+                        next.then(function() {
+                            return inventory.dao.get(job.target)
+                        }).then(function(row) {
+                            if (row.doc.blueprint !== job.blueprint)
+                                throw new C.http.Error(422, "blueprint_mismatch", {
+                                    target: row,
+                                    blueprint: blueprint
+                                })
+                        })
+
+                        break;
+                    default:
+                        job.duration = blueprint.build.time
+
+                        if (job.action == "construct")
+                            job.quantity = 1
                 }
 
                 job.account = auth.account
 
-                return dao.jobs.queue(job).then(function() {
-                    res.status(201).send({
-                        job: {
-                            uuid: job.uuid
-                        }
+                return next.then(function() {
+                    dao.jobs.queue(job).then(function() {
+                        res.status(201).send({
+                            job: {
+                                uuid: job.uuid
+                            }
+                        })
                     })
                 })
             }).fail(C.http.errHandler(req, res, error)).done()

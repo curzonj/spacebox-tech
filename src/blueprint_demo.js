@@ -48,6 +48,11 @@ module.exports = {
                 "item": "33e24278-4d46-4146-946e-58a449d5afae" // ore mine
             }]
         },
+        "production": {
+            "refit": [{
+                "item": "2424c151-645a-40d2-8601-d2f82b2cf4b8"
+            }]
+        },
         "build": {
             "time": 30,
             "resources": {

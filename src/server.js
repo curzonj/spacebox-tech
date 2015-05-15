@@ -6,10 +6,9 @@ var http = require("http"),
     bodyParser = require('body-parser'),
     uuidGen = require('node-uuid'),
     Q = require('q'),
-    C = require('spacebox-common'),
-    db = require('spacebox-common-native').db
+    C = require('spacebox-common')
 
-db.select('tech')
+require('spacebox-common-native').db_select('tech')
 Q.longStackSupport = true
 
 C.configure({

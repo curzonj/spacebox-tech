@@ -46,6 +46,9 @@ CREATE TABLE slice_permissions (
 
 CREATE TABLE ships (
     id uuid PRIMARY KEY,
+    status varchar(255),
+    container_id uuid references inventories (id),
+    container_slice varchar(255),
     account uuid not null,
     doc json not null
 );

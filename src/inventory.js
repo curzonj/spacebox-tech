@@ -12,11 +12,7 @@ var npm_debug = require('debug'),
 var blueprints = require('./blueprints.js'),
     production = require('./production_dep.js')
 
-// TODO inventory will need to keep track of
-// ships and any modules or customization they
-// have. It'll need a seperate root hash.
 var slice_permissions = {}
-var ships = {}
 
 var dao = {
     all: function(account) {
@@ -26,15 +22,11 @@ var dao = {
             return db.query("select * from inventories where account=$1", [ account ])
         }
     },
-    get: function(uuid) {
-        return db.
-            query("select * from inventories where id=$1", [ uuid ]).
-            then(function(data) {
-                return data[0]
-            })
+    get: function(uuid, dbC) {
+        return (dbC || db).oneOrNone("select * from inventories where id=$1", [ uuid ])
     },
-    update: function(uuid, doc) {
-        return db.
+    update: function(uuid, doc, dbC) {
+        return (dbC || db).
             query("update inventories set doc = $2 where id =$1", [ uuid, doc ])
     },
     insert: function(uuid, doc) {
@@ -64,109 +56,137 @@ var self = module.exports = {
 
         return dao.update(container.id, container.doc)
     },
-    transaction: function(transfers) {
-        return Q.all(transfers.map(function(transfer) {
-            var example = {
-                inventory: 'uuid',
-                slice: 'uuid',
-                quantity: 5,
-                blueprint: {},
-                ship_uuid: 'uuid' // only for unpacked ships and quantity must == -1 or 1
-            }
-            var example_container = {
-                uuid: 'uuid',
-                container_action: 'create|destroy',
-                blueprint: 'uuid'
-            }
+    transaction: function(transfers, dbC) {
+        return (dbC || db).tx(function(db) {
+            return Q.all(transfers.map(function(transfer) {
+                var example = {
+                    inventory: 'uuid',
+                    slice: 'uuid',
+                    quantity: 5,
+                    blueprint: {},
+                    ship_uuid: 'uuid' // only for unpacked ships, quantity is ignored
+                }
 
-            return dao.get(transfer.inventory).then(function(data) {
-                var slot
-                var inventory = data.doc,
-                    quantity = transfer.quantity,
-                    sliceID = transfer.slice
+                console.log('transfer', transfer)
 
-                var type = transfer.blueprint.uuid
+                var next = Q(null),
+                    t = transfer
 
-                if (inventory === undefined || type === undefined) {
-                    throw new C.http.Error(422, "no_such_reference", {
-                        name: "inventory",
-                        inventory: transfer.inventory,
-                        blueprint: transfer.blueprint
+                next = next.then(function() {
+                    return db.any("select * from ships").then(function(data) {
+                        console.log('current ships', data)
                     })
-                }
-
-                if (transfer.blueprint.type == "spaceship") {
-                    slot = "hanger"
-
-                    if (inventory[slot][sliceID] === undefined) {
-                        inventory[slot][sliceID] = {
-                            unpacked: []
-                        }
-                    }
-                } else {
-                    slot = "cargo"
-
-                    if (inventory[slot][sliceID] === undefined) {
-                        inventory[slot][sliceID] = {}
-                    }
-                }
-
-                var slice = inventory[slot][sliceID]
-                var volume = quantity * transfer.blueprint.volume
-                var final_volume = inventory.usage[slot] + volume
-
-                if (final_volume > inventory.capacity[slot]) {
-                    throw new C.http.Error(409, "not_enough_space", {
-                        inventory: data.id,
-                        final_volume: final_volume,
-                        capacity: inventory.capacity[slot]
-                    })
-                }
+                })
 
                 if (transfer.ship_uuid !== undefined) {
-                    var list = slice.unpacked
-                    if (quantity > 0) {
-                        list.push(transfer.ship_uuid)
+                    next = next.then(function() {
+                        return Q.all([
+                            db.oneOrNone("select * from inventories where id = $1 for update", transfer.current_location),
+                            db.oneOrNone("select * from ships where id = $1 and status = $2 for update", [ t.ship_uuid, t.required_status ])
+                        ]).spread(function(container, ship) {
+                            if (ship === null) {
+                                throw new C.http.Error(422, "no_such_reference", {
+                                    msg: "the ship is missing",
+                                    ship: ship
+                                })
+                            } else if(ship.container_id !== t.current_location ||
+                                      ship.container_slice !== t.current_slice) {
+                                throw new C.http.Error(422, "no_such_reference", {
+                                    msg: "the ship is out of place",
+                                    ship: ship,
+                                    transaction: t
+                                })
+                            }
 
-                        ships[transfer.blueprint.uuid].location = transfer.inventory
-                        ships[transfer.blueprint.uuid].slice = transfer.slice
-                    } else {
-                        var i = list.indexOf(transfer.ship_uuid)
-                        var shipRecord = ships[transfer.ship_uuid]
+                            if (transfer.ship_uuid !== undefined)
+                                t.quantity = 1
 
-                        if (i == -1 || shipRecord.location !== transfer.inventory || shipRecord.slice !== transfer.slice) {
-                            throw new C.http.Error(422, "no_such_reference", {
-                                name: "ship_uuid",
-                                ship_uuid: transfer.ship_uuid
-                            })
-                        } else {
-                            list.splice(i, 1)
-                        }
-                    }
-                } else {
-                    if (slice[type] === undefined) {
-                        slice[type] = 0
-                    }
+                            if (container !== null) {
+                                var inventory = container.doc
+                                inventory.usage.hanger = inventory.usage.hanger - transfer.blueprint.volume
 
-                    var result = slice[type] + transfer.quantity
-
-                    if (result < 0) {
-                        throw new C.http.Error(409, "invalid_transaction", {
-                            reason: "Not enough cargo present",
-                            blueprint: type,
-                            desired: transfer.quantity,
-                            contents: slice
+                                return dao.update(container.id, inventory, db)
+                            }
                         })
-                    }
-
-                    slice[type] = result
+                    })
                 }
 
-                inventory.usage[slot] = final_volume
+                if (transfer.ship_uuid === undefined || transfer.inventory !== null) {
+                    next = next.then(function() {
+                        return dao.get(transfer.inventory).tap(function(data) {
+                            if (data === undefined) {
+                                throw new C.http.Error(422, "no_such_reference", {
+                                    name: "inventory",
+                                    inventory: transfer.inventory
+                                })
+                            }
+                        })
+                    }).then(function(data) {
+                        var inventory = data.doc,
+                            quantity = transfer.quantity,
+                            type = transfer.blueprint.uuid,
+                            slot = transfer.blueprint.type == "spaceship" ? "hanger" : "cargo"
 
-                return dao.update(transfer.inventory, inventory)
-            })
-        }))
+                        var volume = quantity * transfer.blueprint.volume
+                        var final_volume = inventory.usage[slot] + volume
+                        
+                        // TODO update final volume on ship transfers, sliceID and inventoryID may be null
+
+                        if (final_volume > inventory.capacity[slot]) {
+                            throw new C.http.Error(409, "not_enough_space", {
+                                inventory: data.id,
+                                final_volume: final_volume,
+                                capacity: inventory.capacity[slot]
+                            })
+                        }
+
+                        if (transfer.ship_uuid === undefined) {
+                            var sliceID = transfer.slice,
+                                slice = inventory[slot][sliceID]
+
+                            if (slice === undefined) {
+                                slice = inventory[slot][sliceID] = {}
+                            }
+
+                            if (slice[type] === undefined) {
+                                slice[type] = 0
+                            }
+
+                            var result = slice[type] + transfer.quantity
+
+                            if (result < 0) {
+                                throw new C.http.Error(409, "invalid_transaction", {
+                                    reason: "Not enough cargo present",
+                                    blueprint: type,
+                                    desired: transfer.quantity,
+                                    contents: slice
+                                })
+                            }
+
+                            slice[type] = result
+                        }
+
+                        inventory.usage[slot] = final_volume
+
+                        return dao.update(transfer.inventory, inventory)
+                    })
+                }
+                    
+                if (transfer.ship_uuid !== undefined) {
+                    next = next.then(function() {
+                        var t = transfer
+                        // t.inventory and t.slice may be null when spodb is undocking a ship
+                        //
+                        // The ship was selected for update, meaning it is locked and we can
+                        // safely update it without wondering if someone changed it in
+                        // the mean time
+                        return db.none("update ships set container_id = $2, container_slice = $3 where id = $1", [ t.ship_uuid, t.inventory, t.slice ])
+                    })
+                }
+
+                return next
+            }))
+        })
     },
     router: function(app) {
         // NOTE /containers endpoints are restricted to spodb and production api
@@ -181,11 +201,13 @@ var self = module.exports = {
                                     res.sendStatus(204)
                                 })
                             } else {
-                                res.sendStatus(401)
+                                throw new C.http.Error(401, "not_authorized", {
+                                    account: auth,
+                                    container: container
+                                })
                             }
                         } else {
-                            res.sendStatus(404)
-                        
+                            throw new C.http.Error(404, "no_such_container")
                         }
                     })
             }).fail(C.http.errHandler(req, res, error)).done()
@@ -268,8 +290,9 @@ var self = module.exports = {
                 },
                 usage: {
                     cargo: 0,
-                    hanger: 0
+                    hanger: 0,
                 },
+                modules: [],
                 cargo: {},
                 hanger: {}
             })
@@ -301,10 +324,13 @@ var self = module.exports = {
             }).fail(C.http.errHandler(req, res, error)).done()
         })
 
+        // This is how spodb docks/undocks and updates ship status
         app.post('/ships/:uuid', function(req, res) {
-            Q.spread([blueprints.getData(), C.http.authorize_req(req, true)], function(blueprints, auth) {
-                var uuid = req.param('uuid')
-                var ship = ships[uuid]
+            Q.spread([blueprints.getData(),
+                     C.http.authorize_req(req, true),
+                     db.query("select * from ships where id = $1", [ req.param('uuid') ]) // TODO SELECT FOR UPDATE
+            ], function(blueprints, auth, data) {
+                var ship = data[0]
 
                 debug(ship)
                 debug(req.body)
@@ -313,64 +339,82 @@ var self = module.exports = {
                     return res.sendStatus(404)
                 }
 
-                delete req.body.blueprint
-
-                var blueprint = blueprints[ship.blueprint]
-                var undock = req.body.in_space
-                var quantity, location, slice
-
-                if (undock !== undefined) {
-                    if (undock === true) {
-                        if (!containerAuthorized(ship.location, auth)) {
-                            return res.sendStatus(401)
-                        }
-
-                        self.transaction([{
-                                ship_uuid: uuid,
-                                quantity: -1, // undock
-                                inventory: ship.location,
-                                blueprint: blueprint,
-                                slice: ship.slice
-                        }])
-                    } else if (undock === false) {
-                        if (!containerAuthorized(req.body.location, auth)) {
-                            return res.sendStatus(401)
-                        }
-
-                        self.transaction([{
-                                ship_uuid: uuid,
-                                quantity: 1, // dock
-                                inventory: req.body.location,
-                                blueprint: blueprint,
-                                slice: req.body.slice
-                        }])
-                    } else {
-                        throw new C.http.Error(400, "invalid_param", {
-                            name: 'in_space',
-                            in_space: undock
-                        })
-                    }
+                var transaction = {
+                    current_location: ship.container_id,
+                    current_slice: ship.container_slice,
+                    ship_uuid: ship.id,
+                    blueprint: blueprints[ship.doc.blueprint]
                 }
 
-                delete req.body.location
-                delete req.body.slice
+                switch(req.body.status) {
+                    case 'undocked':
+                        if (ship.status !== 'docked')
+                            throw new C.http.Error(409, "invalid_state_change", {
+                                name: "ship",
+                                ship: ship,
+                            })
 
-                C.deepMerge(req.body, ship)
+                            C.deepMerge({
+                                required_status: 'docked',
+                                inventory: null,
+                                slice: null
+                            }, transaction)
+                        break
+                    case 'docked':
+                        if (ship.status !== 'undocked')
+                            throw new C.http.Error(409, "invalid_state_change", {
+                                name: "ship",
+                                ship: ship,
+                            })
 
-                res.send(ship)
-            }).done()
+                        C.deepMerge({
+                            required_status: 'undocked',
+                            inventory: req.body.inventory,
+                            slice: req.body.slice,
+                        }, transaction)
+                        break
+                }
+
+                // by using the transaction function we make sure that the inventory
+                // usage is checked and updated in a single place
+                return self.transaction([transaction]).
+                then(function() {
+                    return db.query("update ships set status = $2, doc = $3 where id = $1 and status = $4",
+                            [ ship.id, req.body.status, C.deepMerge(req.body.stats, ship.doc), transaction.required_status ]).
+                        then(function(data) {
+                            if (data.length === 0) // this means that the ship didn't match the where conditions
+                                throw "the ship moved during the dock/undock process"
+                        })
+                
+                }).then(function() {
+                    res.sendStatus(204)
+                })
+            }).fail(C.http.errHandler(req, res, error)).done()
+        })
+
+        app.get('/ships', function(req, res) {
+            C.http.authorize_req(req).then(function(auth) {
+                return db.query("select * from ships where account = $1", [ auth.account ]).
+                then(function(data) {
+                    res.send(data)
+                })
+            }).fail(C.http.errHandler(req, res, error)).done()
         })
 
         // this unpacks a ship from inventory and makes it unique
         app.post('/ships', function(req, res) {
-            var uuid = uuidGen.v1(),
-                inventoryID = req.param('inventory'),
+            var inventoryID = req.param('inventory'),
                 sliceID = req.param('slice'),
                 blueprintID = req.param('blueprint')
 
-            Q.spread([blueprints.getData(), C.http.authorize_req(req), dao.get(inventoryID)], function(blueprints, auth, inventory) {
-                if (!containerAuthorized(inventoryID, auth)) {
-                    return res.sendStatus(401)
+            Q.spread([blueprints.getData(), C.http.authorize_req(req), dao.get(inventoryID)], function(blueprints, auth, container_row) {
+                var inventory = container_row.doc
+
+                if (!containerAuthorized(inventory, auth)) {
+                    throw new C.http.Error(403, "unauthorized", {
+                        container: container_row.account,
+                        auth: auth,
+                    })
                 }
 
                 var blueprint  = blueprints[blueprintID]
@@ -393,29 +437,40 @@ var self = module.exports = {
                         blueprint: blueprintID
                     })
                 } else {
-                    var slice = inventory.hanger[sliceID]
+                    var doc = {
+                        blueprint: blueprintID
+                    }
 
-                    if (slice[blueprintID] === undefined || slice[blueprintID] === 0) {
-                        throw new C.http.Error(409, "no_such_reference", {
-                            reason: "the ship is not there",
-                            blueprint: blueprintID
+                    return db.tx(function(db) {
+                        return db.one("insert into ships (id, account, container_id, container_slice, status, doc) values (uuid_generate_v1(), $1, null, null, 'unpacking', $2) returning id", [ container_row.account, doc ]).
+                        then(function(data) {
+                            var uuid = data.id
+                       
+                            // the transaction will lock it for us
+                            return self.transaction([{
+                                inventory: inventoryID,
+                                slice: sliceID,
+                                quantity: -1,
+                                blueprint: blueprint
+                            }, {
+                                inventory: inventoryID,
+                                slice: sliceID,
+                                quantity: 1,
+                                blueprint: blueprint,
+                                required_status: 'unpacking',
+                                current_location: null,
+                                current_slice: null,
+                                ship_uuid: uuid
+                            }], db).then(function() {
+                                return buildContainer(uuid, auth.account, blueprint)
+                            }).then(function() {
+                                return db.one("update ships set status = 'docked' where id = $1 and status = 'unpacking' and container_id = $2 and container_slice = $3 returning id", [ uuid, inventoryID, sliceID ])
+                            }).then(function() {
+                                res.send(C.deepMerge(doc, {
+                                    uuid: uuid
+                                }))
+                            })
                         })
-                    }
-
-                    slice[blueprintID] -= 1
-
-                    var ship = ships[uuid] = {
-                        uuid: uuid,
-                        blueprint: blueprintID,
-                        location: inventoryID,
-                        slice: sliceID,
-                        in_space: false
-                    }
-
-                    slice.unpacked.push(uuid)
-
-                    return buildContainer(uuid, auth.account, blueprint).then(function() {
-                        res.send(ship)
                     })
                 }
             }).fail(C.http.errHandler(req, res, error)).done()
@@ -436,11 +491,22 @@ var self = module.exports = {
 
                 dataset.forEach(function(t) {
                     t.blueprint = blueprints[t.blueprint]
+
+                    if (t.blueprint === undefined)
+                        throw new C.http.Error(422, "no_such_reference", {
+                            name: "blueprint",
+                            blueprint: t.blueprint
+                        })
                 })
 
                 // TODO this method of authorization doesn't allow
                 // cross account trades
 
+                var example_container = {
+                    uuid: 'uuid',
+                    container_action: 'create|destroy',
+                    blueprint: 'uuid'
+                }
                 dataset.forEach(function(t) {
                     if (t.container_action === undefined) return
 
@@ -491,40 +557,40 @@ var self = module.exports = {
                         }
                     }))
                 }).then(function() {
-                    dataset.forEach(function(t) {
-                        if (t.ship_uuid !== undefined) {
-                            var shipRecord = ships[t.ship_uuid]
+                    return Q.all(dataset.map(function(t) {
+                        if (t.ship_uuid === undefined)
+                            return
+                       
+                        // TODO use SELECT FOR UPDATE on this when you add transactions
+                        return db.query("select * from ships where id = $1", [ t.ship_uuid ]).
+                        then(function(data) {
+                            var shipRecord = data[0]
+
                             if (shipRecord === undefined) {
                                 throw new C.http.Error(422, "no_such_reference", {
                                     name: "ship_uuid",
                                     ship_uuid: t.ship_uuid
                                 })
-                            } else if(shipRecord.in_space === true) {
+                            } else if(shipRecord.status !== 'docked') {
+                                // TODO validate the current location of the ship
+                                // relative to the destination. Also make sure the
+                                // user has permissions on the current location of
+                                // the ship
                                 throw new C.http.Error(409, "invalid_transaction", {
                                     reason: "the ship is not there",
                                     ship_uuid: t.ship_uuid
                                 })
                             } else {
-                                t.blueprint = blueprints[shipRecord.blueprint]
+                                // This is in leu of SELECT FOR UPDATE atm
+                                t.required_status = 'docked'
+                                t.current_location = shipRecord.container_id
+                                t.current_slice = shipRecord.container_slice
+                                t.blueprint = blueprints[shipRecord.doc.blueprint]
                             }
-
-                            if (t.quantity === -1) {
-                                if (shipRecord.location !== t.inventory || shipRecord.slice !== t.slice) {
-                                    throw new C.http.Error(409, "invalid_transaction", {
-                                        reason: "the ship is not there",
-                                        ship_uuid: t.ship_uuid
-                                    })
-                                }
-                            } else if (t.quantity != 1) {
-                                throw new C.http.Error(400, "invalid_param", {
-                                    name: 'quantity',
-                                    reason: "quantity must be 1 or -1 for unpacked ships",
-                                    ship_uuid: t.ship_uuid,
-                                    quantity: t.quantity
-                                })
-                            }
-                        }
-
+                        })
+                    }))
+                }).then(function() {
+                    dataset.forEach(function(t) {
                         if (t.blueprint === undefined) {
                             throw new C.http.Error(422, "no_such_reference", {
                                 name: "blueprint",
@@ -541,7 +607,7 @@ var self = module.exports = {
                             transactions.push(t)
                         }
                     })
-
+                }).then(function() {
                     // validate that the transaction is balanced unless the user is special
                     if (auth.privileged !== true) {
                         var counters = {}
@@ -559,7 +625,8 @@ var self = module.exports = {
                         })
 
                         transactions.forEach(function(t) {
-                            increment(t.ship_uuid || t.blueprint.uuid, t.quantity)
+                            if (t.ship_uuid === undefined)
+                                increment(t.blueprint.uuid, t.quantity)
                         })
 
                         for (var key in counters) {
