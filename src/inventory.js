@@ -10,41 +10,21 @@ var npm_debug = require('debug'),
     C = require('spacebox-common')
 
 var blueprints = require('./blueprints.js'),
-    production = require('./production_dep.js')
+    production = require('./production_dep.js'),
+    daoModule = require('./dao.js')
 
 var slice_permissions = {}
 
-var dao = {
-    all: function(account) {
-        if (account === undefined) {
-            return db.query("select * from inventories")
-        } else {
-            return db.query("select * from inventories where account=$1", [ account ])
-        }
-    },
-    get: function(uuid, dbC) {
-        return (dbC || db).oneOrNone("select * from inventories where id=$1", [ uuid ])
-    },
-    update: function(uuid, doc, dbC) {
-        return (dbC || db).
-            query("update inventories set doc = $2 where id =$1", [ uuid, doc ])
-    },
-    insert: function(uuid, doc, dbC) {
-        return (dbC || db).
-            query("insert into inventories (id, account, doc) values ($1, $2, $3)",
-                  [ uuid, doc.account, doc ])
-    },
-    destroy: function (uuid, dbC) {
-        // TODO this should also require that the container is empty
-        return (dbC || db).query("delete from inventories where id = $1", [ uuid ])
-    }
-}
+var dao = daoModule.inventory
 
 var self = module.exports = {
     dao: dao,
     updateContainer: function(container, newBlueprint, dbC) {
         var i = container.doc,
             b = newBlueprint
+
+        if (newBlueprint.uuid === undefined)
+            throw new Error("invalid params for inventory.updateContainer")
 
         debug(i)
 
@@ -68,11 +48,12 @@ var self = module.exports = {
                 }
 
                 var t = transfer
+                debug(transfer)
 
                 if (transfer.ship_uuid !== undefined) {
                     next = next.then(function() {
                         return Q.all([
-                            db.oneOrNone("select * from inventories where id = $1 for update", transfer.current_location),
+                            dao.getForUpdate(transfer.current_location),
                             db.oneOrNone("select * from ships where id = $1 and status = $2 for update", [ t.ship_uuid, t.required_status ])
                         ]).spread(function(container, ship) {
                             if (ship === null) {
@@ -206,17 +187,21 @@ var self = module.exports = {
             debug(data)
 
             Q.spread([blueprints.getData(), C.http.authorize_req(req, true)], function(blueprints, auth) {
-                var blueprint = blueprints[data.blueprint]
-                return buildContainer(data.uuid, auth.account, blueprint).
+                return db.tx(function(db) {
+                    var blueprint = blueprints[data.blueprint]
+                    return buildContainer(data.uuid, auth.account, blueprint, db).
                     then(function() {
                         var list = data.transactions
                         list.forEach(function(t) { t.blueprint = blueprints[t.blueprint] })
-                        return self.transaction(list)
+                        return self.transaction(list, db)
                     }).then(function() {
+                        // This endpoint is only called for objects that
+                        // didn't already exist, so there are no modules
                         if (blueprint.production !== undefined) {
-                            return production.updateFacility(data.uuid, blueprint, auth.account)
+                            return production.updateFacility(data.uuid, auth.account, db)
                         }
                     })
+                })
             }).then(function() {
                 res.sendStatus(204)
             }).fail(C.http.errHandler(req, res, error)).done()
@@ -466,8 +451,10 @@ var self = module.exports = {
                             }], db).then(function() {
                                 return buildContainer(uuid, auth.account, blueprint, db)
                             }).then(function() {
+                                // On initial spawn there are no modules
+                                // so we only care about the blueprint
                                 if (blueprint.production !== undefined) {
-                                    return production.updateFacility(uuid, blueprint, auth.account, db)
+                                    return production.updateFacility(uuid, auth.account, db)
                                 }
                             }).then(function() {
                                 return db.one("update ships set status = 'docked' where id = $1 and status = 'unpacking' and container_id = $2 and container_slice = $3 returning id", [ uuid, inventoryID, sliceID ])

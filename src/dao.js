@@ -3,11 +3,46 @@
 var db = require('spacebox-common-native').db,
     moment = require('moment'),
     npm_debug = require('debug'),
-    log = npm_debug('build:info'),
-    error = npm_debug('build:error'),
-    debug = npm_debug('build:debug')
+    debug = npm_debug('dao')
 
 module.exports = {
+    inventory: {
+        all: function(account) {
+            if (account === undefined) {
+                return db.query("select * from inventories")
+            } else {
+                return db.query("select * from inventories where account=$1", [ account ])
+            }
+        },
+        getForUpdateOrFail: function(uuid, dbC) {
+            dbC.assertTx()
+
+            return dbC.one("select * from inventories where id=$1 for update", uuid)
+        },
+        getForUpdate: function(uuid, dbC) {
+            dbC.assertTx()
+
+            return dbC.oneOrNone("select * from inventories where id=$1 for update", uuid)
+        },
+        get: function(uuid, dbC) {
+            return (dbC || db).oneOrNone("select * from inventories where id=$1", uuid)
+        },
+        update: function(uuid, doc, dbC) {
+            debug("updating inventory doc", uuid, doc)
+
+            return (dbC || db).
+                query("update inventories set doc = $2 where id =$1", [ uuid, doc ])
+        },
+        insert: function(uuid, doc, dbC) {
+            return (dbC || db).
+                query("insert into inventories (id, account, doc) values ($1, $2, $3)",
+                      [ uuid, doc.account, doc ])
+        },
+        destroy: function (uuid, dbC) {
+            // TODO this should also require that the container is empty
+            return (dbC || db).query("delete from inventories where id = $1", [ uuid ])
+        }
+    },
     facilities: {
         all: function(account) {
             if (account === undefined) {
@@ -17,16 +52,16 @@ module.exports = {
             }
         },
         needAttention: function() {
-            return db.query('select * from facilities where trigger_at is null or trigger_at < current_timestamp')
+            return db.query('select * from facilities where trigger_at is null or trigger_at < current_timestamp for update')
         },
         upsert: function(uuid, doc, dbC) {
             return (dbC || db).tx(function(db) {
-                return db.query('update facilities set blueprint = $2, account = $3, resources = $4 where id =$1 returning id', [ uuid, doc.blueprint, doc.account, doc.resources ]).
+                return db.oneOrNone('update facilities set blueprint = $2, account = $3, has_resources = $4 where id =$1 returning id', [ uuid, doc.blueprint, doc.account, doc.resources ]).
                 then(function(data) {
                     debug(data)
-                    if (data.length === 0) {
+                    if (data === null) {
                         return db.
-                            query('insert into facilities (id, blueprint, account, resources) values ($1, $2, $3, $4)', [ uuid, doc.blueprint, doc.account, doc.resources ])
+                            query('insert into facilities (id, blueprint, account, has_resources) values ($1, $2, $3, $4)', [ uuid, doc.blueprint, doc.account, doc.resources ])
                     }
                 })
             })
@@ -60,20 +95,19 @@ module.exports = {
                 query("insert into jobs (id, facility_id, account, doc, status, statusCompletedAt, createdAt, trigger_at) values ($1, $2, $3, $4, $5, current_timestamp, current_timestamp, current_timestamp)", [ doc.uuid, doc.facility, doc.account, doc, "queued" ])
         
         },
-        nextJob: function(facility_id) {
+        nextJob: function(facility_id, db) {
             return db.
-                query("with thenextjob as (select * from jobs where facility_id = $1 and status != 'delivered' order by createdAt limit 1) select * from thenextjob where next_status is null and trigger_at < current_timestamp", [ facility_id ]).
-                then(function(data) {
-                    return data[0]
-                })
+                oneOrNone("with thenextjob as (select * from jobs where facility_id = $1 and status != 'delivered' order by createdAt limit 1) select * from thenextjob where trigger_at < current_timestamp for update", [ facility_id ])
         },
         destroy: function(uuid) {
             return db.
                 query("delete from jobs where id =$1", [ uuid ])
         },
-        flagNextStatus: function(uuid, status, db) {
+        
+        lockJobForUpdate: function(uuid, db) {
             return db.
-                one("update jobs set next_status = $2, nextStatusStartedAt = current_timestamp where nextStatusStartedAt is null and id = $1 returning id", [ uuid, status ])
+                one("select id from jobs where id = $1 for update", uuid)
+
         },
         completeStatus: function(uuid, status, doc, trigger_at, db) {
             if (moment.isMoment(trigger_at)) {
@@ -81,7 +115,7 @@ module.exports = {
             }
 
             return db.
-                one("update jobs set status = next_status, statusCompletedAt = current_timestamp, next_status = null, nextStatusStartedAt = null, doc = $3, trigger_at = $4 where id = $1 and next_status = $2 returning id", [ uuid, status, doc, trigger_at ])
+                one("update jobs set status = $2, statusCompletedAt = current_timestamp, doc = $3, trigger_at = $4 where id = $1 returning id", [ uuid, status, doc, trigger_at ])
         },
         incrementBackoff: function(uuid) {
             return db.
