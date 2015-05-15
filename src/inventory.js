@@ -467,6 +467,10 @@ var self = module.exports = {
                             }], db).then(function() {
                                 return buildContainer(uuid, auth.account, blueprint)
                             }).then(function() {
+                                if (blueprint.production !== undefined) {
+                                    return production.updateFacility(uuid, blueprint, auth.account)
+                                }
+                            }).then(function() {
                                 return db.one("update ships set status = 'docked' where id = $1 and status = 'unpacking' and container_id = $2 and container_slice = $3 returning id", [ uuid, inventoryID, sliceID ])
                             }).then(function() {
                                 res.send(C.deepMerge(doc, {
