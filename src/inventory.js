@@ -29,20 +29,20 @@ var dao = {
         return (dbC || db).
             query("update inventories set doc = $2 where id =$1", [ uuid, doc ])
     },
-    insert: function(uuid, doc) {
-        return db.
+    insert: function(uuid, doc, dbC) {
+        return (dbC || db).
             query("insert into inventories (id, account, doc) values ($1, $2, $3)",
                   [ uuid, doc.account, doc ])
     },
-    destroy: function (uuid) {
+    destroy: function (uuid, dbC) {
         // TODO this should also require that the container is empty
-        return db.query("delete from inventories where id = $1", [ uuid ])
+        return (dbC || db).query("delete from inventories where id = $1", [ uuid ])
     }
 }
 
 var self = module.exports = {
     dao: dao,
-    updateContainer: function(container, newBlueprint) {
+    updateContainer: function(container, newBlueprint, dbC) {
         var i = container.doc,
             b = newBlueprint
 
@@ -54,11 +54,11 @@ var self = module.exports = {
 
         debug(i)
 
-        return dao.update(container.id, container.doc)
+        return dao.update(container.id, container.doc, dbC)
     },
     transaction: function(transfers, dbC) {
         return (dbC || db).tx(function(db) {
-            return Q.all(transfers.map(function(transfer) {
+            return transfers.reduce(function(next, transfer) {
                 var example = {
                     inventory: 'uuid',
                     slice: 'uuid',
@@ -67,8 +67,7 @@ var self = module.exports = {
                     ship_uuid: 'uuid' // only for unpacked ships, quantity is ignored
                 }
 
-                var next = Q(null),
-                    t = transfer
+                var t = transfer
 
                 if (transfer.ship_uuid !== undefined) {
                     next = next.then(function() {
@@ -170,7 +169,7 @@ var self = module.exports = {
                 }
 
                 return next
-            }))
+            }, Q(null))
         })
     },
     router: function(app) {
@@ -254,13 +253,13 @@ var self = module.exports = {
         })
 
         function containerAuthorized(container, auth) {
-            var result = (container !== undefined && container.account == auth.account)
+            var result = (container !== undefined && container !== null && container.account == auth.account)
             if (!result)
                 debug(auth.account, 'not granted access to', container)
             return result
         }
 
-        function buildContainer(uuid, account, blueprint) {
+        function buildContainer(uuid, account, blueprint, dbC) {
             var b = blueprint
 
             debug("building", uuid, "for", account)
@@ -280,7 +279,7 @@ var self = module.exports = {
                 modules: [],
                 cargo: {},
                 hanger: {}
-            })
+            }, dbC)
         }
 
         app.get('/inventory', function(req, res) {
@@ -465,10 +464,10 @@ var self = module.exports = {
                                 current_slice: null,
                                 ship_uuid: uuid
                             }], db).then(function() {
-                                return buildContainer(uuid, auth.account, blueprint)
+                                return buildContainer(uuid, auth.account, blueprint, db)
                             }).then(function() {
                                 if (blueprint.production !== undefined) {
-                                    return production.updateFacility(uuid, blueprint, auth.account)
+                                    return production.updateFacility(uuid, blueprint, auth.account, db)
                                 }
                             }).then(function() {
                                 return db.one("update ships set status = 'docked' where id = $1 and status = 'unpacking' and container_id = $2 and container_slice = $3 returning id", [ uuid, inventoryID, sliceID ])
@@ -542,122 +541,122 @@ var self = module.exports = {
                     containers.push(t)
                 })
 
-                return Q.fcall(function() {
-                    return Q.all(dataset.map(function(t) {
-                        if (t.container_action !== undefined) return
+                return db.tx(function(db) {
+                    return Q.fcall(function() {
+                        return Q.all(dataset.map(function(t) {
+                            if (t.container_action !== undefined) return
 
-                        if (old_containers.indexOf(t.inventory) > 0) {
-                            throw new C.http.Error(422, "invalid_transaction", {
-                                reason: "the container is being deleted",
-                                container: t.inventory
-                            })
-                        } else if (new_containers.indexOf(t.inventory) == -1) {
-                            return dao.get(t.inventory).then(function(container) {
-                                if (!containerAuthorized(container, auth)) {
-                                    throw new C.http.Error(403, "unauthorized", {
-                                        container: t.inventory,
-                                        account: auth.account,
-                                        action: 'update'
+                            if (old_containers.indexOf(t.inventory) > 0) {
+                                throw new C.http.Error(422, "invalid_transaction", {
+                                    reason: "the container is being deleted",
+                                    container: t.inventory
+                                })
+                            } else if (new_containers.indexOf(t.inventory) == -1) {
+                                return dao.get(t.inventory, db).then(function(container) {
+                                    if (!containerAuthorized(container, auth)) {
+                                        throw new C.http.Error(403, "unauthorized", {
+                                            container: t.inventory,
+                                            account: auth.account,
+                                            action: 'update'
+                                        })
+                                    }
+                                })
+                            }
+                        }))
+                    }).then(function() {
+                        return Q.all(dataset.map(function(t) {
+                            if (t.ship_uuid === undefined)
+                                return
+                           
+                            return db.query("select * from ships where id = $1 for update", [ t.ship_uuid ]).
+                            then(function(data) {
+                                var shipRecord = data[0]
+
+                                if (shipRecord === undefined) {
+                                    throw new C.http.Error(422, "no_such_reference", {
+                                        name: "ship_uuid",
+                                        ship_uuid: t.ship_uuid
                                     })
+                                } else if(shipRecord.status !== 'docked') {
+                                    // TODO validate the current location of the ship
+                                    // relative to the destination. Also make sure the
+                                    // user has permissions on the current location of
+                                    // the ship
+                                    throw new C.http.Error(409, "invalid_transaction", {
+                                        reason: "the ship is not there",
+                                        ship_uuid: t.ship_uuid
+                                    })
+                                } else {
+                                    t.required_status = 'docked'
+                                    t.current_location = shipRecord.container_id
+                                    t.current_slice = shipRecord.container_slice
+                                    t.blueprint = blueprints[shipRecord.doc.blueprint]
                                 }
                             })
-                        }
-                    }))
-                }).then(function() {
-                    return Q.all(dataset.map(function(t) {
-                        if (t.ship_uuid === undefined)
-                            return
-                       
-                        // TODO use SELECT FOR UPDATE on this when you add transactions
-                        return db.query("select * from ships where id = $1", [ t.ship_uuid ]).
-                        then(function(data) {
-                            var shipRecord = data[0]
-
-                            if (shipRecord === undefined) {
+                        }))
+                    }).then(function() {
+                        dataset.forEach(function(t) {
+                            if (t.blueprint === undefined) {
                                 throw new C.http.Error(422, "no_such_reference", {
-                                    name: "ship_uuid",
-                                    ship_uuid: t.ship_uuid
+                                    name: "blueprint",
+                                    blueprint: t.blueprint
                                 })
-                            } else if(shipRecord.status !== 'docked') {
-                                // TODO validate the current location of the ship
-                                // relative to the destination. Also make sure the
-                                // user has permissions on the current location of
-                                // the ship
-                                throw new C.http.Error(409, "invalid_transaction", {
-                                    reason: "the ship is not there",
-                                    ship_uuid: t.ship_uuid
+                            } else if (t.blueprint.volume === undefined) {
+                                throw new C.http.Error(500, "invalid_blueprint", {
+                                    reason: "missing the volume attribute",
+                                    blueprint: t.blueprint
                                 })
-                            } else {
-                                // This is in leu of SELECT FOR UPDATE atm
-                                t.required_status = 'docked'
-                                t.current_location = shipRecord.container_id
-                                t.current_slice = shipRecord.container_slice
-                                t.blueprint = blueprints[shipRecord.doc.blueprint]
+                            }
+
+                            if (t.container_action === undefined) {
+                                transactions.push(t)
                             }
                         })
-                    }))
-                }).then(function() {
-                    dataset.forEach(function(t) {
-                        if (t.blueprint === undefined) {
-                            throw new C.http.Error(422, "no_such_reference", {
-                                name: "blueprint",
-                                blueprint: t.blueprint
-                            })
-                        } else if (t.blueprint.volume === undefined) {
-                            throw new C.http.Error(500, "invalid_blueprint", {
-                                reason: "missing the volume attribute",
-                                blueprint: t.blueprint
-                            })
-                        }
+                    }).then(function() {
+                        // validate that the transaction is balanced unless the user is special
+                        if (auth.privileged !== true) {
+                            var counters = {}
 
-                        if (t.container_action === undefined) {
-                            transactions.push(t)
+                            var increment = function(type, q) {
+                                if (counters[type] === undefined) {
+                                    counters[type] = 0
+                                }
+
+                                counters[type] += q
+                            }
+
+                            containers.forEach(function(c) {
+                                increment(c.blueprint.uuid, (c.container_action == 'create' ? 1 : -1))
+                            })
+
+                            transactions.forEach(function(t) {
+                                if (t.ship_uuid === undefined)
+                                    increment(t.blueprint.uuid, t.quantity)
+                            })
+
+                            for (var key in counters) {
+                                if (counters[key] !== 0) {
+                                    throw new C.http.Error(422, "invalid_transaction", {
+                                        reason: "unbalanced",
+                                        accounting: counters
+                                    })
+                                }
+                            }
                         }
+                    }).then(function() {
+                        // TODO this should all be in a database transaction
+                        return Q.all(containers.map(function(c) {
+                            if (c.container_action == "create") {
+                                return buildContainer(c.uuid, auth.account, c.blueprint, db)
+                            } else { // destroy ?
+                                return dao.destroy(c.uuid, db)
+                            }
+                        }))
+                    }).then(function() {
+                        return self.transaction(transactions, db)
+                    }).then(function() {
+                        res.sendStatus(204)
                     })
-                }).then(function() {
-                    // validate that the transaction is balanced unless the user is special
-                    if (auth.privileged !== true) {
-                        var counters = {}
-
-                        var increment = function(type, q) {
-                            if (counters[type] === undefined) {
-                                counters[type] = 0
-                            }
-
-                            counters[type] += q
-                        }
-
-                        containers.forEach(function(c) {
-                            increment(c.blueprint.uuid, (c.container_action == 'create' ? 1 : -1))
-                        })
-
-                        transactions.forEach(function(t) {
-                            if (t.ship_uuid === undefined)
-                                increment(t.blueprint.uuid, t.quantity)
-                        })
-
-                        for (var key in counters) {
-                            if (counters[key] !== 0) {
-                                throw new C.http.Error(422, "invalid_transaction", {
-                                    reason: "unbalanced",
-                                    accounting: counters
-                                })
-                            }
-                        }
-                    }
-                }).then(function() {
-                    // TODO this should all be in a database transaction
-                    return Q.all(containers.map(function(c) {
-                        if (c.container_action == "create") {
-                            return buildContainer(c.uuid, auth.account, c.blueprint)
-                        } else { // destroy ?
-                            return dao.destroy(c.uuid)
-                        }
-                    }))
-                }).then(function() {
-                    return self.transaction(transactions)
-                }).then(function() {
-                    res.sendStatus(204)
                 })
             }).fail(C.http.errHandler(req, res, error)).done()
         })

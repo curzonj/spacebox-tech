@@ -4,7 +4,7 @@ var dao = require('./dao.js'),
     pubsub = require('./pubsub.js')
 
 module.exports = {
-    updateFacility: function(uuid, blueprint, account) {
+    updateFacility: function(uuid, blueprint, account, dbC) {
         if (blueprint.production === undefined) {
             throw new Error(uuid+" is not a production facility")
         }
@@ -13,7 +13,7 @@ module.exports = {
             blueprint: blueprint.uuid, 
             account: account,
             resources: blueprint.production.generate
-        }).then(function() {
+        }, dbC).then(function() {
             pubsub.publish({
                 type: 'facility',
                 account: account,

@@ -19,8 +19,9 @@ module.exports = {
         needAttention: function() {
             return db.query('select * from facilities where trigger_at is null or trigger_at < current_timestamp')
         },
-        upsert: function(uuid, doc) {
-            return db.query('update facilities set blueprint = $2, account = $3, resources = $4 where id =$1 returning id', [ uuid, doc.blueprint, doc.account, doc.resources ]).
+        upsert: function(uuid, doc, dbC) {
+            return (dbC || db).tx(function(db) {
+                return db.query('update facilities set blueprint = $2, account = $3, resources = $4 where id =$1 returning id', [ uuid, doc.blueprint, doc.account, doc.resources ]).
                 then(function(data) {
                     debug(data)
                     if (data.length === 0) {
@@ -28,10 +29,7 @@ module.exports = {
                             query('insert into facilities (id, blueprint, account, resources) values ($1, $2, $3, $4)', [ uuid, doc.blueprint, doc.account, doc.resources ])
                     }
                 })
-        },
-        destroy: function(uuid) {
-            return db.
-                query("delete from facilities where id=$1", [ uuid ])
+            })
         },
         get: function(uuid) {
             return db.
@@ -73,36 +71,21 @@ module.exports = {
             return db.
                 query("delete from jobs where id =$1", [ uuid ])
         },
-        flagNextStatus: function(uuid, status) {
+        flagNextStatus: function(uuid, status, db) {
             return db.
-                query("update jobs set next_status = $2, nextStatusStartedAt = current_timestamp where nextStatusStartedAt is null and id = $1 returning id", [ uuid, status ]).
-                then(function(data) {
-                    if (data.length === 0) {
-                        throw("failed to lock job "+uuid+" for "+status)
-                    }
-                })
+                one("update jobs set next_status = $2, nextStatusStartedAt = current_timestamp where nextStatusStartedAt is null and id = $1 returning id", [ uuid, status ])
         },
-        completeStatus: function(uuid, status, doc, trigger_at) {
+        completeStatus: function(uuid, status, doc, trigger_at, db) {
             if (moment.isMoment(trigger_at)) {
                 trigger_at = trigger_at.toDate()
             }
 
             return db.
-                query("update jobs set status = next_status, statusCompletedAt = current_timestamp, next_status = null, nextStatusStartedAt = null, doc = $3, trigger_at = $4 where id = $1 and next_status = $2 returning id", [ uuid, status, doc, trigger_at ]).
-                then(function(data) {
-                    if (data.length === 0) {
-                        throw("failed to transition job "+uuid+" to "+status)
-                    }
-                })
+                one("update jobs set status = next_status, statusCompletedAt = current_timestamp, next_status = null, nextStatusStartedAt = null, doc = $3, trigger_at = $4 where id = $1 and next_status = $2 returning id", [ uuid, status, doc, trigger_at ])
         },
-        failNextStatus: function(uuid, status) {
+        incrementBackoff: function(uuid) {
             return db.
-                query("update jobs set next_status = null, nextStatusStartedAt = null, next_backoff = next_backoff * 2, trigger_at = current_timestamp + next_backoff where id = $1 and next_status = $2 returning id", [ uuid, status ]).
-                then(function(data) {
-                    if (data.length === 0) {
-                        throw("failed to fail job transition "+uuid+" to "+status)
-                    }
-                })
+                one("update jobs set next_backoff = next_backoff * 2, trigger_at = current_timestamp + next_backoff where id = $1 returning id", uuid)
         }
     }
 }

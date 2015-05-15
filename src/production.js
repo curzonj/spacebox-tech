@@ -15,8 +15,9 @@ var dao = require('./dao.js'),
     blueprints = require('./blueprints.js'),
     inventory = require('./inventory.js')
 
-function destroyFacility(uuid) {
-    return dao.facilities.get(uuid).then(function(facility) {
+function destroyFacility(uuid, db) {
+    return db.one("select * from facilities where id=$1 for update", uuid).
+    then(function(facility) {
         pubsub.publish({
             type: 'facility',
             account: facility.account,
@@ -28,113 +29,133 @@ function destroyFacility(uuid) {
         // delete running_jobs[uuid] TODO when should jobs be cleaned up?
         // delete queued_jobs[uuid]
 
-        return dao.facilities.destroy(uuid)
+        return db.none("delete from facilities where id=$1", uuid)
     })
 }
 
-function consume(account, uuid, slice, type, quantity) {
+function consume(db, account, uuid, slice, type, quantity) {
     return blueprints.getData().then(function(blueprints) {
         return inventory.transaction([{
             inventory: uuid,
             slice: slice,
             blueprint: blueprints[type],
             quantity: (quantity * -1)
-        }])
+        }], db)
     })
 }
 
-function produce(account, uuid, slice, type, quantity) {
+function produce(db, account, uuid, slice, type, quantity) {
     return blueprints.getData().then(function(blueprints) {
         return inventory.transaction([{
             inventory: uuid,
             slice: slice,
             blueprint: blueprints[type],
             quantity: quantity
-        }])
+        }], db)
     })
 }
 
 function fullfillResources(data) {
     var job = data.doc
 
-    return Q.all([
-        blueprints.getData(),
-        dao.jobs.flagNextStatus(data.id, "resourcesFullfilled")
-    ]).spread(function(blueprints) {
-        var blueprint = blueprints[job.blueprint]
+    return db.tx(function(db) {
+        return Q.all([
+            blueprints.getData(),
+            dao.jobs.flagNextStatus(data.id, "resourcesFullfilled", db)
+        ]).spread(function(blueprints) {
+            var blueprint = blueprints[job.blueprint]
 
-        pubsub.publish({
-            type: 'job',
-            account: job.account,
-            uuid: job.uuid,
-            facility: job.facility,
-            state: 'started',
+            pubsub.publish({
+                type: 'job',
+                account: job.account,
+                uuid: job.uuid,
+                facility: job.facility,
+                state: 'started',
+            })
+
+            log("running " + job.uuid + " at " + job.facility)
+
+            switch(job.action) {
+                case 'refine':
+                    return consume(db, job.account, job.facility, job.slice, job.blueprint, job.quantity)
+                case 'refit':
+                    debug(job)
+                    return Q.all(job.modules.map(function(key) {
+                        return consume(db, job.account, job.facility, job.slice, key, 1)
+                    })).then(function() {
+                        if(blueprint.type == 'structure') {
+                            if (job.facility != job.target)
+                                throw("a structure can only refit itself")
+                        } else if(blueprint.type === 'spaceship') {
+                            return db.
+                                one("update ships set status = 'refitting' where id = $1 and container_id = $2 and container_slice = $3 and status = 'docked' returning id",
+                                    [ job.target, job.facility, job.slice ])
+                        } else {
+                            throw("unknown type for refitting: "+blueprint.type)
+                        }
+                    })
+                default:
+                    debug(blueprint)
+                    return Q.all(Object.keys(blueprint.build.resources).map(function(key) {
+                        var count = blueprint.build.resources[key]
+                        return consume(db, job.account, job.facility, job.slice, key, count * job.quantity)
+                    }))
+            }
+        }).then(function() {
+            var finishAt = moment().add(job.duration * job.quantity, 'seconds')
+            job.finishAt = finishAt.unix()
+            return dao.jobs.completeStatus(data.id, "resourcesFullfilled", job, finishAt, db)
+        }).then(function() {
+            log("fullfilled " + job.uuid + " at " + job.facility)
         })
-
-        log("running " + job.uuid + " at " + job.facility)
-
-        switch(job.action) {
-            case 'refine':
-                return consume(job.account, job.facility, job.slice, job.blueprint, job.quantity)
-            case 'refit':
-                debug(job)
-                return Q.all(job.modules.map(function(key) {
-                    return consume(job.account, job.facility, job.slice, key, 1)
-                })).then(function() {
-                    if(blueprint.type === 'spaceship')
-                        return db.
-                            query("update ships set status = 'refitting' where id = $1 and container_id = $2 and container_slice = $3 and status = 'docked' returning id",
-                                [ job.target, job.facility, job.slice ]).
-                            then(function(data) {
-                                    if (data.length === 0) // this means that the ship didn't match the where conditions
-                                        throw "the ship is no longer available for refitting"
-                            })
-                })
-            default:
-                debug(blueprint)
-                return Q.all(Object.keys(blueprint.build.resources).map(function(key) {
-                    var count = blueprint.build.resources[key]
-                    // TODO do this as a transaction
-                    return consume(job.account, job.facility, job.slice, key, count * job.quantity)
-                }))
-        }
-    }).then(function() {
-        var finishAt = moment().add(job.duration * job.quantity, 'seconds')
-        job.finishAt = finishAt.unix()
-        return dao.jobs.completeStatus(data.id, "resourcesFullfilled", job, finishAt)
-    }).then(function() {
-        log("fullfilled " + job.uuid + " at " + job.facility)
     }).fail(function(e) {
         error("failed to fullfill " + job.uuid + " at " + job.facility + ": " + e.toString())
         error(e.stack)
-        return dao.jobs.failNextStatus(data.id, "resourcesFullfilled")
-    }).done()
+        return dao.jobs.incrementBackoff(job.uuid)
+    })
 }
 
-function deliverJob(job) {
+function deliverJob(job, db) {
     var key,
         promises = []
 
     switch (job.action) {
         case "manufacture":
-            return produce(job.account, job.facility, job.slice, job.blueprint, job.quantity)
+            return produce(db, job.account, job.facility, job.slice, job.blueprint, job.quantity)
 
         case "refine":
-                // TODO do this as a transaction
             return Q.all(Object.keys(job.outputs).map(function(key) {
                 var count = job.outputs[key]
-                return produce(job.account, job.facility, job.slice, key, count * job.quantity)
+                return produce(db, job.account, job.facility, job.slice, key, count * job.quantity)
             }))
         case "refit":
             debug(job)
 
-            // TODO do this as a transaction
-            return inventory.dao.get(job.target).then(function(data) {
-                return Q.all(job.modules.map(function(key) {
-
-                }))
+            return db.one("select * from inventories where id = $1 for update", job.target).
+            then(function(container) {
+                return blueprints.getData().then(function(blueprints) {
+                    return inventory.transaction(
+                        container.doc.modules.map(function(mod) {
+                            return {
+                                inventory: job.facility,
+                                slice: job.slice,
+                                quantity: 1,
+                                blueprint:  blueprints[mod],
+                            }
+                        }), db)
+                
+                }).then(function() {
+                    container.doc.modules = job.modules.slice()
+                    return inventory.dao.update(job.target, container.doc, db)
+                })
             }).then(function() {
-                return db.query("update ships set status = 'docked' where id = $1", [ job.target ])
+                return db.one("update ships set status = 'docked' where id = $1 and status = 'refitting' returning id", job.target).fail(function(e) {
+                    return db.any("select * from ships").then(function(data) {
+                        console.log('all ships', data)
+                    })
+
+                    throw e
+                })
             })
         case "construct":
             return Q.fcall(function() {
@@ -149,12 +170,14 @@ function deliverJob(job) {
                     // If a scaffold was upgraded to a non-production
                     // structure, remove the facility tracking
                     if (blueprint.production === undefined) {
-                        return destroyFacility(job.facility)
+                        return destroyFacility(job.facility, db)
                     } else {
-                        return self.updateFacility(job.facility, blueprint, job.account)
+                        return self.updateFacility(job.facility, blueprint, job.account, db)
                     }
                 }).then(function() {
-                    return inventory.updateContainer(job.facility, job.blueprint)
+                    return db.one("select * from inventories where id = $1 for update", job.facility)
+                }).then(function(container) {
+                    return inventory.updateContainer(container, job.blueprint, db)
                 })
             })
     }
@@ -170,11 +193,12 @@ function jobDeliveryHandling(data) {
         return
     }
 
-    return dao.jobs.flagNextStatus(data.id, "delivered").
+    return db.tx(function(db) {
+        return dao.jobs.flagNextStatus(data.id, "delivered", db).
         then(function() {
-            return deliverJob(job)
+            return deliverJob(job, db)
         }).then(function() {
-            return dao.jobs.completeStatus(data.id, "delivered", job, moment().add(10, 'years'))
+            return dao.jobs.completeStatus(data.id, "delivered", job, moment().add(10, 'years'), db)
         }).then(function() {
             log("delivered " + job.uuid + " at " + facility)
 
@@ -185,16 +209,18 @@ function jobDeliveryHandling(data) {
                 facility: job.facility,
                 state: 'delivered',
             })
-        }).fail(function(e) {
-            error("failed to deliver job in " + facility + ": " + e.toString())
-            return dao.jobs.failNextStatus(data.id, "delivered")
         })
+    }).fail(function(e) {
+        error("failed to deliver job in " + facility + ": " + e.toString())
+        error(e.stack)
+        return dao.jobs.incrementBackoff(data.id)
+    })
 }
 
 function checkAndProcessFacilityJob(facility) {
     return dao.jobs.nextJob(facility.id).then(function(data) {
         if (data === undefined) {
-            log("no matching jobs in "+facility.id)
+            debug("no matching jobs in "+facility.id)
             return
         
         } else {
@@ -219,55 +245,57 @@ function checkAndDeliverResources(facility) {
 
     var resource = facility.resources
 
-    if (facility.resourceslastdeliveredat === null) {
-        // The first time around this is just a dummy
-        return Q(db.query("update facilities set resourcedeliverystartedat = null, resourceslastdeliveredat = current_timestamp where id = $1", [ uuid ]))
-    } else if (
-        moment(facility.resourceslastdeliveredat).add(resource.period, 's').isBefore(moment()) &&
-            facility.resourcedeliverystartedat === null
-    ) {
-        return Q(db.query("update facilities set resourcedeliverystartedat = current_timestamp where id = $1", [ uuid ])).then(function() {
-            return produce(facility.account, uuid, 'default', resource.type, resource.quantity)
-        }).tap(C.qDebug('checkAndDeliver')).then(function() {
-            pubsub.publish({
-                type: 'resources',
-                account: facility.account,
-                facility: uuid,
-                blueprint: resource.type,
-                quantity: resource.quantity,
-                state: 'delivered'
+    db.tx(function(db) {
+        if (facility.resourceslastdeliveredat === null) {
+            // The first time around this is just a dummy
+            return db.query("update facilities set resourcedeliverystartedat = null, resourceslastdeliveredat = current_timestamp where id = $1", [ uuid ])
+        } else if (
+            moment(facility.resourceslastdeliveredat).add(resource.period, 's').isBefore(moment()) &&
+                facility.resourcedeliverystartedat === null
+        ) {
+            return db.query("update facilities set resourcedeliverystartedat = current_timestamp where id = $1", [ uuid ]).then(function() {
+                return produce(db, facility.account, uuid, 'default', resource.type, resource.quantity)
+            }).tap(C.qDebug('checkAndDeliver')).then(function() {
+                pubsub.publish({
+                    type: 'resources',
+                    account: facility.account,
+                    facility: uuid,
+                    blueprint: resource.type,
+                    quantity: resource.quantity,
+                    state: 'delivered'
+                })
+
+                return db.query("update facilities set resourcedeliverystartedat = null, next_backoff = '1 second', resourceslastdeliveredat = current_timestamp, trigger_at = $2 where id = $1",
+                                [ uuid, moment().add(resource.period, 's').toDate() ])
+            }).fail(function(e) {
+                error("failed to deliver resources from "+uuid+": "+e.toString())
+
+                pubsub.publish({
+                    type: 'resources',
+                    account: facility.account,
+                    facility: uuid,
+                    blueprint: resource.type,
+                    quantity: resource.quantity,
+                    state: 'delivery_failed'
+                })
+
+                return db.query("update facilities set next_backoff = next_backoff * 2, trigger_at = current_timestamp + next_backoff where id = $1",
+                                [ uuid ])
             })
-
-            return db.query("update facilities set resourcedeliverystartedat = null, next_backoff = '1 second', resourceslastdeliveredat = current_timestamp, trigger_at = $2 where id = $1",
-                            [ uuid, moment().add(resource.period, 's').toDate() ])
-        }).fail(function(e) {
-            error("failed to deliver resources from "+uuid+": "+e.toString())
-
-            pubsub.publish({
-                type: 'resources',
-                account: facility.account,
-                facility: uuid,
-                blueprint: resource.type,
-                quantity: resource.quantity,
-                state: 'delivery_failed'
-            })
-
-            return db.query("update facilities set resourcedeliverystartedat = null, next_backoff = next_backoff * 2, trigger_at = current_timestamp + next_backoff where id = $1",
-                            [ uuid ])
-        })
-    } else {
-        if (facility.resourcedeliverystartedat) {
-            log("delivery was started for "+uuid+" and I'm still waiting")
         } else {
-            log(uuid+" is waiting for "+moment(facility.resourceslastdeliveredat).add(resource.period, 's').diff(moment()))
-        }
-    }
+            if (facility.resourcedeliverystartedat) {
+                log("delivery was started for "+uuid+" and I'm still waiting")
+            } else {
+                log(uuid+" is waiting for "+moment(facility.resourceslastdeliveredat).add(resource.period, 's').diff(moment()))
+            }
 
-    return Q(null)
+            return Q(null)
+        }
+    })
 }
 
 var buildWorker = setInterval(function() {
-    log("processing jobs")
+    debug("processing jobs")
 
     // TODO use an iterator
     dao.facilities.needAttention().then(function(data) {
@@ -413,10 +441,11 @@ var self = module.exports = {
 
         // When a ship or production structure is destroyed
         app.delete('/facilities/:uuid', function(req, res) {
-            destroyFacility(req.param('uuid')).then(function() {
+            db.tx(function(db) {
+                return destroyFacility(req.param('uuid'), db)
+            }).then(function() {
                 res.sendStatus(204)
             }).fail(C.http.errHandler(req, res, error)).done()
-
         })
 
         app.post('/facilities/:uuid', function(req, res) {

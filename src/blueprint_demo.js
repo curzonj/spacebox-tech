@@ -5,7 +5,7 @@ module.exports = {
         "type": "module",
         "volume": 2,
         "build": {
-            "time": 30,
+            "time": 3,
             "resources": {
                 "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
             }
@@ -54,7 +54,7 @@ module.exports = {
             }]
         },
         "build": {
-            "time": 30,
+            "time": 3,
             "resources": {
                 "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
             }
