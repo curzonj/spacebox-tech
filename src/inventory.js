@@ -53,7 +53,7 @@ var self = module.exports = {
                 if (transfer.ship_uuid !== undefined) {
                     next = next.then(function() {
                         return Q.all([
-                            dao.getForUpdate(transfer.current_location),
+                            dao.getForUpdate(transfer.current_location, db),
                             db.oneOrNone("select * from ships where id = $1 and status = $2 for update", [ t.ship_uuid, t.required_status ])
                         ]).spread(function(container, ship) {
                             if (ship === null) {
@@ -198,7 +198,7 @@ var self = module.exports = {
                         // This endpoint is only called for objects that
                         // didn't already exist, so there are no modules
                         if (blueprint.production !== undefined) {
-                            return production.updateFacility(data.uuid, auth.account, db)
+                            return production.updateFacilities(data.uuid, db)
                         }
                     })
                 })
@@ -454,7 +454,7 @@ var self = module.exports = {
                                 // On initial spawn there are no modules
                                 // so we only care about the blueprint
                                 if (blueprint.production !== undefined) {
-                                    return production.updateFacility(uuid, auth.account, db)
+                                    return production.updateFacilities(uuid, db)
                                 }
                             }).then(function() {
                                 return db.one("update ships set status = 'docked' where id = $1 and status = 'unpacking' and container_id = $2 and container_slice = $3 returning id", [ uuid, inventoryID, sliceID ])

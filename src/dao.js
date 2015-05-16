@@ -52,7 +52,7 @@ module.exports = {
             }
         },
         needAttention: function() {
-            return db.query('select * from facilities where trigger_at is null or trigger_at < current_timestamp for update')
+            return db.query("select * from facilities where disabled = 'f' and trigger_at is not null and trigger_at < current_timestamp")
         },
         upsert: function(uuid, doc, dbC) {
             return (dbC || db).tx(function(db) {
@@ -97,17 +97,11 @@ module.exports = {
         },
         nextJob: function(facility_id, db) {
             return db.
-                oneOrNone("with thenextjob as (select * from jobs where facility_id = $1 and status != 'delivered' order by createdAt limit 1) select * from thenextjob where trigger_at < current_timestamp for update", [ facility_id ])
+                oneOrNone("select * from jobs where facility_id = $1 and status != 'delivered' order by createdAt limit 1 for update", [ facility_id ])
         },
         destroy: function(uuid) {
             return db.
                 query("delete from jobs where id =$1", [ uuid ])
-        },
-        
-        lockJobForUpdate: function(uuid, db) {
-            return db.
-                one("select id from jobs where id = $1 for update", uuid)
-
         },
         completeStatus: function(uuid, status, doc, trigger_at, db) {
             if (moment.isMoment(trigger_at)) {
