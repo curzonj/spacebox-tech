@@ -63,7 +63,7 @@ function fullfillResources(ctx, data, db) {
     ]).spread(function(blueprints, container, _) {
         var blueprint = blueprints[job.blueprint]
 
-        pubsub.publish({
+        pubsub.publish(ctx, {
             type: 'job',
             account: job.account,
             uuid: job.uuid,
@@ -243,7 +243,7 @@ function jobDeliveryHandling(ctx, data, db) {
     }).then(function() {
         ctx.log('build', "delivered " + job.uuid + " at " + facility)
 
-        pubsub.publish({
+        pubsub.publish(ctx, {
             account: job.account,
             type: 'job',
             uuid: job.uuid,
@@ -314,7 +314,7 @@ function checkAndDeliverResources(ctx, uuid) {
             ) {
                 return produce(facility.inventory_id, 'default', [{ blueprint: resource.type, quantity: resource.quantity}], db).
                 then(function() {
-                    pubsub.publish({
+                    pubsub.publish(ctx, {
                         type: 'resources',
                         account: facility.account,
                         facility: uuid,
@@ -328,7 +328,7 @@ function checkAndDeliverResources(ctx, uuid) {
                 }).fail(function(e) {
                     ctx.log('build', "failed to deliver resources from "+uuid+": "+e.toString())
 
-                    pubsub.publish({
+                    pubsub.publish(ctx, {
                         type: 'resources',
                         account: facility.account,
                         facility: uuid,

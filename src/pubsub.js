@@ -1,18 +1,14 @@
 'use strict';
 
 var WebSockets = require("ws"),
-    npm_debug = require('debug'),
-    log = npm_debug('build:info'),
-    error = npm_debug('build:error'),
-    debug = npm_debug('build:debug'),
     C = require('spacebox-common'),
     uriUtils = require('url')
 
 var listeners = []
 
 module.exports = {
-    publish: function (message) {
-        log("publishing to %d listeners", listeners.length, message)
+    publish: function (ctx, message) {
+        ctx.log('pubsub', "publishing to %d listeners", listeners.length, message)
 
         listeners.forEach(function(ws) {
             var account = ws.upgradeReq.authentication.account
@@ -20,7 +16,7 @@ module.exports = {
             if (ws.readyState == WebSockets.OPEN && message.account == account) {
                 ws.send(JSON.stringify(message))
             } else {
-                error("owner %s !== connection %s", message.account, account)
+                ctx.log('pubsub', "owner %s !== connection %s", message.account, account)
             }
         })
     },

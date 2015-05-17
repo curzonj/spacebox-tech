@@ -16,6 +16,7 @@ function build_facility_doc(container, blueprint) {
 }
 
 var self = module.exports = {
+    /*
     destroyFacility: function (uuid, db) {
         return dao.inventory.getForUpdateOrFail(uuid, db).
         then(function(facility) {
@@ -33,6 +34,7 @@ var self = module.exports = {
             return db.none("delete from facilities where id=$1", uuid)
         })
     },
+    */
 
     updateFacilities: function(uuid, db) {
         return Q.spread([
@@ -46,7 +48,7 @@ var self = module.exports = {
                     current_facilities.map(function(v) { return v.blueprint }),
                 changes = C.compute_array_changes(current_facility_modules, new_facility_modules)
 
-            console.log('updateFacilities', container, current_facilities, changes)
+            db.ctx.log('build', 'updateFacilities', container, current_facilities, changes)
 
             return Q.all([
                 changes.added.map(function(v) {
@@ -62,7 +64,7 @@ var self = module.exports = {
                     return db.none("update facilities set disabled = false, doc = $3 where inventory_id = $1 and blueprint = $2", [ uuid, v, doc ])
                 })
             ]).then(function() {
-                pubsub.publish({
+                pubsub.publish(db.ctx, {
                     type: 'facilities',
                     account: container.account,
                     inventory: uuid,
