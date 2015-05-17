@@ -2,7 +2,7 @@
 
 var http = require("http"),
     express = require("express"),
-    logger = require('morgan'),
+    morgan = require('morgan'),
     bodyParser = require('body-parser'),
     uuidGen = require('node-uuid'),
     Q = require('q'),
@@ -19,7 +19,22 @@ C.configure({
 var app = express()
 var port = process.env.PORT || 5000
 
-app.use(logger('dev'))
+var req_id = 0
+app.use(function (req, res, next) {
+    req_id = req_id + 1
+    req.request_id = req_id
+    req.ctx = new C.TracingContext(req_id)
+
+    next()
+});
+
+morgan.token('request_id', function(req, res){ return req.ctx.id })
+
+app.use(morgan('req_id=:request_id :method :url', {
+    immediate: true
+}))
+
+app.use(morgan('req_id=:request_id :method :url :status :res[content-length] - :response-time ms'))
 app.use(bodyParser.json())
 app.use(bodyParser.urlencoded({ extended: false }))
 

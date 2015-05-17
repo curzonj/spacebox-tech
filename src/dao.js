@@ -1,9 +1,7 @@
 'use strict';
 
 var db = require('spacebox-common-native').db,
-    moment = require('moment'),
-    npm_debug = require('debug'),
-    debug = npm_debug('dao')
+    moment = require('moment')
 
 module.exports = {
     inventory: {
@@ -15,23 +13,36 @@ module.exports = {
             }
         },
         getForUpdateOrFail: function(uuid, dbC) {
+            if (dbC === undefined)
+                throw new Error("failed to pass a transaction: getForUpdateOrFail")
+
             dbC.assertTx()
 
             return dbC.one("select * from inventories where id=$1 for update", uuid)
         },
         getForUpdate: function(uuid, dbC) {
+            if (dbC === undefined)
+                throw new Error("failed to pass a transaction: getForUpdate")
+
             dbC.assertTx()
+
+            if (uuid === null)
+                return null
 
             return dbC.oneOrNone("select * from inventories where id=$1 for update", uuid)
         },
         get: function(uuid, dbC) {
+            if (uuid === null)
+                return null
+
             return (dbC || db).oneOrNone("select * from inventories where id=$1", uuid)
         },
         update: function(uuid, doc, dbC) {
-            debug("updating inventory doc", uuid, doc)
+            if (dbC === undefined)
+                dbC = db
 
-            return (dbC || db).
-                query("update inventories set doc = $2 where id =$1", [ uuid, doc ])
+            dbC.ctx.debug('dao', "updating inventory doc", uuid, doc)
+            return dbC.query("update inventories set doc = $2 where id =$1", [ uuid, doc ])
         },
         insert: function(uuid, doc, dbC) {
             return (dbC || db).
@@ -58,7 +69,7 @@ module.exports = {
             return (dbC || db).tx(function(db) {
                 return db.oneOrNone('update facilities set blueprint = $2, account = $3, has_resources = $4 where id =$1 returning id', [ uuid, doc.blueprint, doc.account, doc.resources ]).
                 then(function(data) {
-                    debug(data)
+                    db.ctx.debug('dao', data)
                     if (data === null) {
                         return db.
                             query('insert into facilities (id, blueprint, account, has_resources) values ($1, $2, $3, $4)', [ uuid, doc.blueprint, doc.account, doc.resources ])

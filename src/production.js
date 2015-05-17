@@ -2,10 +2,6 @@
 
 var uuidGen = require('node-uuid'),
     moment = require('moment'),
-    npm_debug = require('debug'),
-    log = npm_debug('build:info'),
-    error = npm_debug('build:error'),
-    debug = npm_debug('build:debug'),
     Q = require('q'),
     db = require('spacebox-common-native').db,
     C = require('spacebox-common')
@@ -15,29 +11,49 @@ var dao = require('./dao.js'),
     blueprints = require('./blueprints.js'),
     inventory = require('./inventory.js')
 
-function consume(db, account, uuid, slice, type, quantity) {
-    return blueprints.getData().then(function(blueprints) {
-        return inventory.transaction([{
-            inventory: uuid,
-            slice: slice,
-            blueprint: blueprints[type],
-            quantity: (quantity * -1)
-        }], db)
+function produce( uuid, slice, items, db) {
+    return updateInventory('produce', uuid, slice, items, db)
+}
+
+function consume( uuid, slice, items, db) {
+    return updateInventory('consume', uuid, slice, items, db)
+}
+
+function updateInventory(action, uuid, slice, items, db) {
+    return Q.spread([
+        blueprints.getData(),
+        dao.inventory.getForUpdateOrFail(uuid, db),
+    ], function(blueprints, container) {
+        var args
+
+        if (!Array.isArray(items))
+            items = [ items ]
+
+        switch(action) {
+            case 'produce':
+                args = [ null, null, container, slice ]
+                break;
+            case 'consume':
+                args = [ container, slice, null, null ]
+                break;
+            default:
+                throw new Error("invalid inventory action: "+action)
+        }
+
+        args.push(items.map(function(item) {
+            return {
+                blueprint: blueprints[item.blueprint],
+                quantity: item.quantity
+            }
+        }), db)
+
+        return inventory.transfer.apply(inventory, args).tap(function() {
+            db.ctx.debug('build', 'contents after', action, container.cargo)
+        })
     })
 }
 
-function produce(db, account, uuid, slice, type, quantity) {
-    return blueprints.getData().then(function(blueprints) {
-        return inventory.transaction([{
-            inventory: uuid,
-            slice: slice,
-            blueprint: blueprints[type],
-            quantity: quantity
-        }], db)
-    })
-}
-
-function fullfillResources(data, db) {
+function fullfillResources(ctx, data, db) {
     var job = data.doc
 
     return Q.all([
@@ -55,13 +71,16 @@ function fullfillResources(data, db) {
             state: 'started',
         })
 
-        log("running " + job.uuid + " at " + job.facility)
+        ctx.log('build', "running " + job.uuid + " at " + job.facility)
 
         switch(job.action) {
             case 'refine':
-                return consume(db, job.account, job.inventory_id, job.slice, job.blueprint, job.quantity)
+                return consume(job.inventory_id, job.slice, [{
+                    blueprint: job.blueprint,
+                    quantity: job.quantity
+                }], db)
             case 'refit':
-                debug(job)
+                ctx.debug('build', job)
 
                 var next = Q(null)
 
@@ -78,28 +97,25 @@ function fullfillResources(data, db) {
                     throw("unknown type for refitting: "+blueprint.type)
                 }
 
+                var changes = C.compute_array_changes(container.doc.modules, job.modules)
                 return next.then(function() {
-                    var current_modules = container.doc.modules.slice()
-                    debug("current modules", current_modules)
-                    debug("current cargo", container.doc.cargo)
-
-                    return job.modules.reduce(function(next, key) {
-                        return next.then(function() {
-                            var i = current_modules.indexOf(key)
-                            if (i > -1) {
-                                current_modules.splice(i, 1)
-                            } else {
-                                return consume(db, job.account, job.inventory_id, job.slice, key, 1)
-                            }
-                        })
-                    }, Q(null))
+                    return consume(job.inventory_id, job.slice, changes.added.map(function(mod) {
+                        return {
+                            blueprint: mod,
+                            quantity: 1
+                        }
+                    }), db)
                 })
             default:
-                debug(blueprint)
-                return Q.all(Object.keys(blueprint.build.resources).map(function(key) {
-                    var count = blueprint.build.resources[key]
-                    return consume(db, job.account, job.inventory_id, job.slice, key, count * job.quantity)
-                }))
+                ctx.debug('build', blueprint)
+
+                return consume(job.inventory_id, job.slice, 
+                    Object.keys(blueprint.build.resources).map(function(key) {
+                        return {
+                            blueprint: key,
+                            quantity: job.quantity * blueprint.build.resources[key]
+                        }
+                    }), db)
         }
     }).then(function() {
         var finishAt = moment().add(job.duration * job.quantity, 'seconds')
@@ -109,66 +125,51 @@ function fullfillResources(data, db) {
             return db.none("update facilities set current_job_id = $2, trigger_at = $3, next_backoff = '1 second' where id = $1", [ job.facility, data.id, finishAt.toDate()])
         })
     }).then(function() {
-        log("fullfilled " + job.uuid + " at " + job.facility)
+        ctx.log('build', "fullfilled " + job.uuid + " at " + job.facility)
     })
 }
 
-function deliverJob(job, db) {
+function deliverJob(ctx, job, db) {
     // refit and construct below depends on the return value of this
     var next = dao.inventory.getForUpdateOrFail(job.inventory_id, db)
 
     switch (job.action) {
         case "manufacture":
             return next.then(function() {
-                produce(db, job.account, job.inventory_id, job.slice, job.blueprint, job.quantity)
+                return produce(job.inventory_id, job.slice, [{
+                    blueprint: job.blueprint,
+                    quantity: job.quantity
+                }], db)
             })
 
         case "refine":
-            // TODO this could be a single call to inventory.transaction
-            return Object.keys(job.outputs).reduce(function(next, key) {
-                return next.then(function() {
-                    produce(db, job.account, job.inventory_id, job.slice, key, job.outputs[key] * job.quantity)
-                })
-            }, next)
+            return next.then(function() {
+                return produce(job.inventory_id, job.slice, Object.keys(job.outputs).map(function(key) {
+                    return {
+                        blueprint: key,
+                        quantity: job.outputs[key] * job.quantity
+                    }
+                }), db)
+            })
         case "refit":
-            debug(job)
+            ctx.debug('build', job)
 
             return next.then(function(container) {
-                var current_modules = container.doc.modules.slice(),
-                    job_modules = job.modules.slice()
+                var changes = C.compute_array_changes(container.doc.modules, job.modules)
 
-                var left_overs = current_modules.reduce(function(next, key) {
-                    return next.then(function(list) {
-                        var i = job_modules.indexOf(key)
-                        if (i > -1) {
-                            job_modules.splice(i, 1)
-                        } else {
-                            // if it wasn't needed for the job we'll return it
-                            list.push(key)
-                        }
-
-                        return list
-                    })
-                }, Q([]))
-
-                return Q.spread([ left_overs, blueprints.getData() ], function(left_overs, blueprints) {
-                    return inventory.transaction(
-                        left_overs.map(function(mod) {
-                            return {
-                                inventory: job.inventory_id,
-                                slice: job.slice,
-                                quantity: 1,
-                                blueprint:  blueprints[mod],
-                            }
-                        }), db)
-                }).then(function() {
+                return produce(job.inventory_id, job.slice, changes.removed.map(function(key) {
+                    return {
+                        blueprint: key,
+                        quantity: 1
+                    }
+                }), db).then(function() {
                     // The transaction modified the inventory above returning leftovers
-                    return db.one("select * from inventories where id = $1", job.target).
+                    return dao.inventory.getForUpdateOrFail(job.target, db).
                     then(function(container) {
                         container.doc.modules = job.modules.slice()
 
-                        debug("updated modules", container.doc.modules)
-                        debug("updated inventory", container.doc.cargo)
+                        ctx.debug('build', "updated modules", container.doc.modules)
+                        ctx.debug('build', "updated inventory", container.doc.cargo)
 
                         return inventory.dao.update(job.target, container.doc, db)
                     })
@@ -193,20 +194,20 @@ function deliverJob(job, db) {
 
                     return inventory.dao.update(container.id, container.doc, db).
                     then(function() {
+                        // get the latest for the next update
+                        return inventory.dao.getForUpdateOrFail(job.inventory_id, db)
+                    }).then(function() {
                         // If the inventory transaction fails, it will fail
                         // the inventory update too
-                        return inventory.transaction(
-                            left_overs.map(function(mod) {
-                                return {
-                                    inventory: job.inventory_id,
-                                    slice: job.slice,
-                                    quantity: 1,
-                                    blueprint:  blueprints[mod],
-                                }
-                            }), db)
+                        return produce(job.inventory_id, job.slice, left_overs.map(function(key) {
+                            return {
+                                blueprint: key,
+                                quantity: 1
+                            }
+                        }), db)
                     }).then(function() {
                         // get the latest for the next update
-                        return inventory.dao.getForUpdate(job.inventory_id, db)
+                        return inventory.dao.getForUpdateOrFail(job.inventory_id, db)
                     })
                 } else {
                     return container
@@ -216,7 +217,7 @@ function deliverJob(job, db) {
                 then(function(blueprints) {
                     // This may change the capacity, but the leftover modules go into
                     // the inventory whether there is room or not
-                    inventory.updateContainer(container, blueprints[job.blueprint], db)
+                    return inventory.updateContainer(ctx, container, blueprints[job.blueprint], db)
                 })
             }).then(function() {
                 return self.updateFacilities(job.inventory_id, db)
@@ -224,23 +225,23 @@ function deliverJob(job, db) {
     }
 }
 
-function jobDeliveryHandling(data, db) {
+function jobDeliveryHandling(ctx, data, db) {
     var job = data.doc
     var facility = data.facility_id
 
     var timestamp = moment.unix(job.finishAt)
     if (timestamp.isAfter(moment())) {
-        log('received job '+data.id+' at '+facility+' early: '+moment.unix(job.finishAt).fromNow());
+        ctx.log('build', 'received job '+data.id+' at '+facility+' early: '+moment.unix(job.finishAt).fromNow());
         return
     }
 
-    return deliverJob(job, db).
+    return deliverJob(ctx, job, db).
     then(function() {
         return dao.jobs.completeStatus(data.id, "delivered", job, moment().add(10, 'years'), db)
     }).then(function() {
         return db.none("update facilities set current_job_id = null, next_backoff = '1 second', trigger_at = current_timestamp where id = $1", job.facility)
     }).then(function() {
-        log("delivered " + job.uuid + " at " + facility)
+        ctx.log('build', "delivered " + job.uuid + " at " + facility)
 
         pubsub.publish({
             account: job.account,
@@ -252,46 +253,46 @@ function jobDeliveryHandling(data, db) {
     })
 }
 
-function checkAndProcessFacilityJob(facility_id) {
+function checkAndProcessFacilityJob(ctx, facility_id) {
     var job
 
-    return db.tx(function(db) {
+    return db.tx(ctx, function(db) {
         return db.one("select id from facilities where id = $1 for update", facility_id).
         then(function() {
             return dao.jobs.nextJob(facility_id, db)
         }).then(function(data) {
             if (data === null) {
-                debug("no matching jobs in "+facility_id)
+                ctx.debug('build', "no matching jobs in "+facility_id)
                 return db.none("update facilities set trigger_at = null where id = $1", facility_id)
             } else {
                 job = data
-                debug('job', data)
+                ctx.debug('build', 'job', data)
 
                 if (moment(job.trigger_at).isAfter(moment())) {
-                    return db.none("update facilities set trigger_at = $2 where id = $1", facility_id, job.trigger_at)
+                    return db.none("update facilities set trigger_at = $2 where id = $1", [ facility_id, job.trigger_at ])
                 }
             }
 
             switch(data.status) {
                 case "queued":
-                    return fullfillResources(job, db)
+                    return fullfillResources(ctx, job, db)
                 case "resourcesFullfilled":
-                    return jobDeliveryHandling(job, db)
+                    return jobDeliveryHandling(ctx, job, db)
                 case "delivered":
                     //return dao.jobs.destroy(data.id)
             }
         })
     }).fail(function(e) {
-        error("failed to handle job in", facility_id, ": " + e.toString())
-        error(e.stack)
+        ctx.log('build', "failed to handle job in", facility_id, ": " + e.toString())
+        ctx.log('build', e.stack)
 
         if (job !== undefined && job.id !== undefined)
             return dao.jobs.incrementBackoff(job.id)
     })
 }
 
-function checkAndDeliverResources(uuid) {
-    return db.tx(function(db) {
+function checkAndDeliverResources(ctx, uuid) {
+    return db.tx(ctx, function(db) {
         return Q.spread([
             blueprints.getData(),
             db.one("select * from facilities where id = $1 for update", uuid)
@@ -302,7 +303,7 @@ function checkAndDeliverResources(uuid) {
             if (resource === undefined)
                 throw new Error(facility.id+" has no resources, but tried to produce them")
 
-            debug('resource processing', facility, blueprint)
+            ctx.debug('build', 'resource processing', facility, blueprint)
             
             if (facility.doc.resources_checked_at === undefined) {
                 facility.doc.resources_checked_at = moment()
@@ -311,7 +312,7 @@ function checkAndDeliverResources(uuid) {
             } else if (
                 moment(facility.doc.resources_checked_at).add(resource.period, 's').isBefore(moment())
             ) {
-                return produce(db, facility.account, facility.inventory_id, 'default', resource.type, resource.quantity).
+                return produce(facility.inventory_id, 'default', [{ blueprint: resource.type, quantity: resource.quantity}], db).
                 then(function() {
                     pubsub.publish({
                         type: 'resources',
@@ -325,7 +326,7 @@ function checkAndDeliverResources(uuid) {
                     facility.doc.resources_checked_at = moment()
                     return db.query("update facilities set trigger_at = $2 and next_backoff = '1 second' and doc = $3 where id = $1", [ uuid, moment().add(resource.period, 's').toDate(), facility.doc ])
                 }).fail(function(e) {
-                    error("failed to deliver resources from "+uuid+": "+e.toString())
+                    ctx.log('build', "failed to deliver resources from "+uuid+": "+e.toString())
 
                     pubsub.publish({
                         type: 'resources',
@@ -342,7 +343,7 @@ function checkAndDeliverResources(uuid) {
                     return db.query("update facilities set next_backoff = next_backoff * 2, trigger_at = current_timestamp + next_backoff where id = $1", uuid)
                 })
             } else {
-                log(uuid+" is waiting for "+moment(facility.doc.resources_checked_at).add(resource.period, 's').diff(moment()))
+                ctx.log('build', uuid+" is waiting for "+moment(facility.doc.resources_checked_at).add(resource.period, 's').diff(moment()))
 
                 return Q(null)
             }
@@ -350,44 +351,49 @@ function checkAndDeliverResources(uuid) {
     })
 }
 
-var jobRoundInProgress = false;
-var buildWorker = setInterval(function() {
-    var now = moment().unix()
+setInterval(function() {
+    var jobRoundInProgress = false,
+        ctx = new C.TracingContext()
 
-    if (jobRoundInProgress) {
-        debug("job processing not complete, skipping round")
-        return
+    function build_worker_fn(ctx) {
+        if (jobRoundInProgress) {
+            ctx.log('build', "job processing not complete, skipping round")
+            return
+        }
+
+        jobRoundInProgress = true;
+
+        ctx.log('build', "start processing jobs")
+        return dao.facilities.needAttention().then(function(data) {
+            // Within a transaction, everything needs to be sequential
+            return data.reduce(function(next, facility) {
+                ctx.debug('build', 'facility', facility)
+
+                if (facility.has_resources) {
+                    return next.then(function() {
+                        return checkAndDeliverResources(ctx, facility.id)
+                    })
+                } else {
+                    return next.then(function() {
+                        return checkAndProcessFacilityJob(ctx, facility.id)
+                    })
+                }
+            }, Q(null))
+        }).then(function() {
+            ctx.log('build', 'done processing jobs')
+        }).fin(function() {
+            jobRoundInProgress = false
+        }).fail(function(e) {
+            throw e
+        }).done()
     }
 
-    jobRoundInProgress = true;
-    debug("processing jobs ts="+now)
-
-    // TODO use an iterator
-    return dao.facilities.needAttention().then(function(data) {
-        debug('data', data)
-
-        // Within a transaction, everything needs to be sequential
-        return data.reduce(function(next, facility) {
-            debug('facility', facility)
-
-            if (facility.has_resources) {
-                return next.then(function() {
-                    return checkAndDeliverResources(facility.id)
-                })
-            } else {
-                return next.then(function() {
-                    return checkAndProcessFacilityJob(facility.id)
-                })
-            }
-        }, Q(null))
-    }).then(function() {
-        debug('done processing round ts='+now)
-    }).fin(function() {
-        jobRoundInProgress = false
-    }).fail(function(e) {
-        throw e
-    }).done()
-}, 1000) // TODO don't let runs overlap
+    return function() {
+        return ctx.log_with(function(ctx) {
+            build_worker_fn(ctx)
+        }, "ts="+moment().unix(), 'build')
+    }
+}(), 1000)
 
 var prod_dep = require('./production_dep.js')
 var self = module.exports = {
@@ -400,7 +406,7 @@ var self = module.exports = {
                     then(function(data) {
                         res.send(data)
                     })
-            }).fail(C.http.errHandler(req, res, error)).done()
+            }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
         app.get('/jobs', function(req, res) {
@@ -422,7 +428,7 @@ var self = module.exports = {
 
         // players queue jobs
         app.post('/jobs', function(req, res) {
-            debug(req.body)
+            req.ctx.debug('build', req.body)
 
             var job = req.body
             var duration = -1
@@ -454,8 +460,8 @@ var self = module.exports = {
                 if (canList === undefined || !canList.some(function(e) {
                     return e.item == blueprint.uuid
                 })) {
-                    debug(canList)
-                    debug(job.blueprint)
+                    req.ctx.debug('build', canList)
+                    req.ctx.debug('build', job.blueprint)
 
                     throw new C.http.Error(422, "invalid_job", {
                         msg: "facility is unable to produce that"
@@ -504,7 +510,7 @@ var self = module.exports = {
                         })
                     })
                 })
-            }).fail(C.http.errHandler(req, res, error)).done()
+            }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
         app.get('/facilities', function(req, res) {
@@ -516,16 +522,19 @@ var self = module.exports = {
                 }
             }).then(function(list) {
                 res.send(list)
-            }).fail(C.http.errHandler(req, res, error)).done()
+            }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
+        /*
         // When a ship or production structure is destroyed
         app.delete('/facilities/:uuid', function(req, res) {
-            db.tx(function(db) {
-                return self.destroyFacility(req.param('uuid'), db)
-            }).then(function() {
-                res.sendStatus(204)
-            }).fail(C.http.errHandler(req, res, error)).done()
-        })
+            C.http.authorize_req(req, true).then(function(auth) {
+                return db.tx(function(db) {
+                    return self.destroyFacility(req.param('uuid'), db)
+                }).then(function() {
+                    res.sendStatus(204)
+                })
+            }).fail(C.http.errHandler(req, res, console.log)).done()
+        }) */
     }
 }
