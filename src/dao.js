@@ -78,11 +78,7 @@ module.exports = {
             })
         },
         get: function(uuid) {
-            return db.
-                query("select * from facilities where id=$1", [ uuid ]).
-                then(function(data) {
-                    return data[0]
-                })
+            return db.one("select * from facilities where id=$1", uuid)
         }
     
     },

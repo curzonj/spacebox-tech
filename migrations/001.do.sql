@@ -23,7 +23,7 @@ CREATE TABLE facilities (
 
 CREATE TABLE jobs (
     id uuid PRIMARY KEY,
-    facility_id uuid references facilities (id),
+    facility_id uuid references facilities (id) ON DELETE SET NULL,
     account uuid not null,
 
     trigger_at timestamp with time zone not null,
@@ -35,7 +35,7 @@ CREATE TABLE jobs (
     doc json not null
 );
 
-alter table facilities add foreign key (current_job_id) references jobs;
+alter table facilities add foreign key (current_job_id) references jobs ON DELETE SET NULL;
 
 --CREATE TABLE slice_permissions (
 --    id uuid PRIMARY KEY,

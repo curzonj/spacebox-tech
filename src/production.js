@@ -175,13 +175,18 @@ function deliverJob(ctx, job, db) {
                     })
                 })
             }).then(function() {
-                return db.one("update ships set status = 'docked' where id = $1 and status = 'refitting' returning id", job.target).fail(function(e) {
-                    return db.any("select * from ships").then(function(data) {
-                        console.log('all ships', data)
-                    })
+                return self.updateFacilities(job.inventory_id, db)
+            }).then(function() {
+                return blueprints.getData()
+            }).then(function(blueprints) {
+                if (blueprints[job.blueprint].type === 'spaceship')
+                    return db.one("update ships set status = 'docked' where id = $1 and status = 'refitting' returning id", job.target).fail(function(e) {
+                        return db.any("select * from ships").then(function(data) {
+                            console.log('all ships', data)
+                        })
 
-                    throw e
-                })
+                        throw e
+                    })
             })
         case "construct":
             return next.tap(function(_) {
@@ -285,6 +290,7 @@ function checkAndProcessFacilityJob(ctx, facility_id) {
     }).fail(function(e) {
         ctx.log('build', "failed to handle job in", facility_id, ": " + e.toString())
         ctx.log('build', e.stack)
+        process.exit()
 
         if (job !== undefined && job.id !== undefined)
             return dao.jobs.incrementBackoff(job.id)
@@ -513,6 +519,21 @@ var self = module.exports = {
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
+        app.post('/facilities', function(req, res) {
+            var uuid = req.param('container_id')
+
+            C.http.authorize_req(req).then(function(auth) {
+                return db.tx(req.ctx, function(db) {
+                    return self.updateFacilities(uuid, db).
+                    then(function() {
+                        return db.many("select * from facilities where account = $1 and inventory_id = $2", [ auth.account, uuid ])
+                    })
+                })
+            }).then(function(list) {
+                res.send(list)
+            }).fail(C.http.errHandler(req, res, console.log)).done()
+        })
+
         app.get('/facilities', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
                 if (auth.privileged && req.param('all') == 'true') {
@@ -526,15 +547,22 @@ var self = module.exports = {
         })
 
         /*
-        // When a ship or production structure is destroyed
+         * You can only delete disabled facilities
+         * deleting a facility cancels any jobs running there
+         * cancelling a job you lose both the output and the
+         *      input, that may change in the future.
+         */
         app.delete('/facilities/:uuid', function(req, res) {
-            C.http.authorize_req(req, true).then(function(auth) {
+            C.http.authorize_req(req).then(function(auth) {
                 return db.tx(function(db) {
-                    return self.destroyFacility(req.param('uuid'), db)
+                    return db.one("select * from facilities where id=$1 and account = $2 and disabled = 't' for update", [ req.param('uuid'), auth.account ]).
+                    then(function(facility) {
+                        return self.destroyFacility(facility, db)
+                    })
                 }).then(function() {
                     res.sendStatus(204)
                 })
             }).fail(C.http.errHandler(req, res, console.log)).done()
-        }) */
+        })
     }
 }
