@@ -37,16 +37,26 @@ module.exports = {
     "2424c151-645a-40d2-8601-d2f82b2cf4b8": {
         "name": "Basic Outpost",
         "type": "structure",
-        "maxHealth": 1000000000,
-        "inventory_capacity": 500, // m3
-        "hanger_capacity": 2000, // tonnes, megagrams, 1000kg
-        "module_limits": {
-            "capacity": 100,
-            "canUse": [{
-                "item": "d9c166f0-3c6d-11e4-801e-d5aa4697630f" // factory
-            }, {
-                "item": "33e24278-4d46-4146-946e-58a449d5afae" // ore mine
-            }]
+        "maxHealth": 30,
+        "inventory_limits": {
+            "modules": {
+                "capacity": 100,
+                "canUse": [{
+                    "item": "d9c166f0-3c6d-11e4-801e-d5aa4697630f" // factory
+                }, {
+                    "item": "33e24278-4d46-4146-946e-58a449d5afae" // ore mine
+                }]
+            },
+            "hanger": {
+                "max_size": 100,
+                "capacity": 2000, // tonnes, megagrams, 1000kg
+            },
+            "mooring": {
+                "capacity": 3
+            },
+            "cargo": {
+                "capacity": 500, // m3
+            }
         },
         "production": {
             "refit": [{
@@ -70,7 +80,17 @@ module.exports = {
                 "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 1
             }
         },
-        "inventory_capacity": 10, // m3
+        "inventory_limits": {
+            "cargo": {
+                "capacity": 10, // m3
+            },
+            "hanger": {
+                "capacity": 0, // tonnes, megagrams, 1000kg
+            },
+            "mooring": {
+                "capacity": 1
+            }
+        },
         "production": {
             "construct": [{
                 "item": "2424c151-645a-40d2-8601-d2f82b2cf4b8"
@@ -110,7 +130,11 @@ module.exports = {
     "7abb04d3-7d58-42d8-be93-89eb486a1c67": {
         "name": "Starter Ship",
         "type": "spaceship",
-        "inventory_capacity": 100,
+        "inventory_limits": {
+            "cargo": {
+                "capacity": 100, // m3
+            }
+        },
         "production": {
             "manufacture": [{
                 "item": "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b" // scaffold

@@ -9,8 +9,6 @@ var blueprints = require('./blueprints.js'),
     production = require('./production_dep.js'),
     daoModule = require('./dao.js')
 
-var slice_permissions = {}
-
 var dao = daoModule.inventory
 
 function build_ship_doc(blueprint) {
@@ -18,6 +16,55 @@ function build_ship_doc(blueprint) {
         blueprint: blueprint
     }
 }
+
+function containerAuthorized(ctx, container, auth) {
+    var result = (container !== undefined && container !== null && container.account == auth.account)
+    if (!result)
+        ctx.debug('inv', auth.account, 'not granted access to', container)
+    return result
+}
+
+function default_limits(src) {
+    return C.deepMerge(src, {
+        "modules": {
+            capacity: 0,
+            canUse: []
+        },
+        "mooring": {
+            capacity: 0,
+        },
+        "hanger": {
+            max_size: 0,
+            capacity: 0,
+        },
+        "cargo": {
+            capacity: 0,
+        }
+    })
+}
+
+function buildContainer(ctx, uuid, account, blueprint, dbC) {
+    var b = blueprint
+
+    ctx.debug('inv', "building", uuid, "for", account)
+
+
+    return dao.insert(uuid, {
+        uuid: uuid,
+        blueprint: b.uuid,
+        account: account,
+        inventory_limits: default_limits(b.inventory_limits),
+        usage: {
+            cargo: 0,
+            hanger: 0,
+        },
+        mooring: [],
+        modules: [],
+        cargo: {},
+        hanger: {}
+    }, dbC)
+}
+
 
 var self = module.exports = {
     dao: dao,
@@ -31,8 +78,7 @@ var self = module.exports = {
         ctx.debug('inv', i)
 
         i.blueprint = newBlueprint.uuid
-        i.capacity.cargo = b.inventory_capacity
-        i.capacity.hanger = b.hanger_capacity
+        i.inventory_limits = default_limits(b.inventory_limits)
 
         ctx.debug('inv', i)
 
@@ -63,6 +109,12 @@ var self = module.exports = {
                 src_doc.usage[slot] = src_doc.usage[slot] - (item.blueprint.volume * item.quantity)
 
                 if (item.ship !== undefined) {
+                    var i = src_doc.mooring.indexOf(item.ship.id)
+                    if (i > -1) {
+                        src_doc.mooring.splice(i, 1)
+                        src_doc.usage.mooring = src_doc.mooring.length
+                    }
+
                     return (item.ship.container_id !== src_container.id || item.ship.container_slice !== src_slice)
                 } else {
                     var slice = src_doc[slot][src_slice]
@@ -73,7 +125,12 @@ var self = module.exports = {
                         slice[item.blueprint.uuid] = 0
 
                     slice[item.blueprint.uuid] = slice[item.blueprint.uuid] - item.quantity
-                    return (src_doc[slot][src_slice][item.blueprint.uuid] < 0)
+                    var not_enough_bool = (src_doc[slot][src_slice][item.blueprint.uuid] < 0)
+
+                    if (src_doc[slot][src_slice][item.blueprint.uuid] === 0)
+                        delete src_doc[slot][src_slice][item.blueprint.uuid]
+
+                    return not_enough_bool
                 }
             })) {
                 throw new C.http.Error(409, "invalid_transaction", {
@@ -87,18 +144,26 @@ var self = module.exports = {
             }
         }
 
+        function default_usage_calc(slot, item) {
+            dest_doc.usage[slot] = dest_doc.usage[slot] + (item.blueprint.volume * item.quantity)
+        }
+
         // dest_container and dest_slice may be null when spodb is undocking a ship
         if (dest_container !== null) {
             var dest_doc = dest_container.doc
 
             items.forEach(function(item) {
-                if (item.ship !== undefined)
-                    item.quantity = 1
+                if (item.ship !== undefined) {
+                    if (item.blueprint.volume > dest_doc.inventory_limits.hanger.max_size) {
+                        dest_doc.mooring.push(item.ship.id)
+                        dest_doc.usage.mooring = dest_doc.mooring.length
+                    } else {
+                        item.quantity = 1
+                        default_usage_calc("hanger", item)
+                    }
+                } else {
+                    var slot = item.blueprint.type == "spaceship" ? "hanger" : "cargo"
 
-                var slot = item.blueprint.type == "spaceship" ? "hanger" : "cargo"
-                dest_doc.usage[slot] = dest_doc.usage[slot] + (item.blueprint.volume * item.quantity)
-
-                if (item.ship === undefined) {
                     var slice = dest_doc[slot][dest_slice]
                     if (slice === undefined)
                         slice = dest_doc[slot][dest_slice] = {}
@@ -107,14 +172,17 @@ var self = module.exports = {
                         slice[item.blueprint.uuid] = 0
 
                     slice[item.blueprint.uuid] = slice[item.blueprint.uuid] + item.quantity
+
+                    default_usage_calc(slot, item)
                 }
             })
-                
-            if ((dest_doc.capacity.hanger < dest_doc.usage.hanger) ||
-                (dest_doc.capacity.cargo < dest_doc.usage.cargo)) {
+
+            if (Object.keys(dest_doc.usage).some(function(k) {
+                return (dest_doc.usage[k] > dest_doc.inventory_limits[k].capacity)
+            })) {
                 throw new C.http.Error(409, "not_enough_space", {
                     inventory: dest_container.id,
-                    capacity: dest_doc.capacity,
+                    capacity: dest_doc.inventory_limits,
                     usage: dest_doc.usage
                 })
             }
@@ -146,31 +214,36 @@ var self = module.exports = {
         })
     },
     router: function(app) {
-        // NOTE /containers endpoints are restricted to spodb and production api
+        // NOTE /containers endpoints are restricted to spodb
         app.delete('/containers/:uuid', function(req, res) {
             C.http.authorize_req(req, true).then(function(auth) {
                 var uuid = req.param('uuid')
 
-                return dao.get(uuid).then(function(container) {
-                        if (container !== undefined) {
-                            if (containerAuthorized(req.ctx, container, auth)) {
-                                return dao.destroy(uuid).then(function() {
-                                    res.sendStatus(204)
-                                })
-                            } else {
-                                throw new C.http.Error(403, "not_authorized", {
-                                    account: auth,
-                                    container: container
-                                })
-                            }
-                        } else {
-                            throw new C.http.Error(404, "no_such_container")
+                return db.tx(req.ctx, function(db) {
+                    return dao.getForUpdateOrFail(uuid, db).then(function(container) {
+                        if (!containerAuthorized(req.ctx, container, auth)) {
+                            throw new C.http.Error(403, "not_authorized", {
+                                account: auth,
+                                container: container
+                            })
                         }
+
+                        return db.any("select * from facilities where inventory_id = $1 for update ", uuid).
+                        then(function(list) {
+                            return Q.all(list.map(function(facility) {
+                                return production.destroyFacility(facility, db)
+                            }))
+                        }).then(function() {
+                            dao.destroy(uuid).then(function() {
+                                res.sendStatus(204)
+                            })
+                        })
                     })
+                })
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
-        app.post('/spawn', function(req, res) {
+        app.post('/containers', function(req, res) {
             var data = req.body /* = {
                 uuid: 'uuid',
                 blueprint: 'uuid',
@@ -229,66 +302,6 @@ var self = module.exports = {
                 res.sendStatus(204)
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
-
-        app.post('/containers/:uuid', function(req, res) {
-            var uuid = req.param('uuid'),
-            blueprintID = req.param('blueprint')
-
-            Q.spread([blueprints.getData(), C.http.authorize_req(req, true), dao.get(uuid)], function(blueprints, auth, container) {
-                var blueprint = blueprints[blueprintID]
-
-                if (blueprint === undefined) {
-                    throw new C.http.Error(422, "no_such_reference", {
-                        name: "blueprint",
-                        blueprint: blueprintID
-                    })
-                } else if (container !== undefined) {
-                    if (containerAuthorized(req.ctx, container, auth)) {
-                        self.updateContainer(req.ctx, container, blueprint).
-                            then(function() {
-                                res.sendStatus(204)
-                            })
-                    } else {
-                        console.log(auth.account, "not authorized to update", uuid)
-                        res.sendStatus(401)
-                    }
-                } else {
-                    return buildContainer(req.ctx, uuid, auth.account, blueprint).then(function() {
-                        res.sendStatus(204)
-                    })
-                }
-            }).fail(C.http.errHandler(req, res, console.log)).done()
-        })
-
-        function containerAuthorized(ctx, container, auth) {
-            var result = (container !== undefined && container !== null && container.account == auth.account)
-            if (!result)
-                ctx.debug('inv', auth.account, 'not granted access to', container)
-            return result
-        }
-
-        function buildContainer(ctx, uuid, account, blueprint, dbC) {
-            var b = blueprint
-
-            ctx.debug('inv', "building", uuid, "for", account)
-
-            return dao.insert(uuid, {
-                uuid: uuid,
-                blueprint: b.uuid,
-                account: account,
-                capacity: {
-                    cargo: b.inventory_capacity || 0,
-                    hanger: b.hanger_capacity || 0,
-                },
-                usage: {
-                    cargo: 0,
-                    hanger: 0,
-                },
-                modules: [],
-                cargo: {},
-                hanger: {}
-            }, dbC)
-        }
 
         app.get('/inventory', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
@@ -495,8 +508,10 @@ var self = module.exports = {
             return db.tx(req.ctx, function(db) {
             return Q.spread([
                 dao.getForUpdate(dataset.from_id, db),
-                dao.getForUpdate(dataset.to_id, db)
-            ], function(src_container, dest_container) {
+                dao.getForUpdate(dataset.to_id, db),
+                db.oneOrNone("select * from ships where id = $1", dataset.from_id),
+                db.oneOrNone("select * from ships where id = $1", dataset.to_id),
+            ], function(src_container, dest_container, src_ship, dest_ship) {
                 req.ctx.debug('inv', 'processing transfer for', auth)
 
                 if (auth.privileged !== true) {
@@ -509,6 +524,14 @@ var self = module.exports = {
                         throw new C.http.Error(403, "unauthorized", {
                             container: dataset.to_id,
                             account: auth.account
+                        })
+                    } else if(
+                        // The ship doesn't need to be in any particular slice, just in the structure generally
+                        (src_ship === null || src_ship.container_id !== dest_container.id) &&
+                        (dest_ship === null || dest_ship.container_id !== src_container.id)
+                    ) {
+                        throw new C.http.Error(409, "invalid_transaction", {
+                            msg: "you can only transfer between a ship and the structure it is docked at"
                         })
                     }
                 }

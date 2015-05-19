@@ -9,7 +9,7 @@ CREATE TABLE inventories (
 CREATE TABLE facilities (
     id uuid PRIMARY KEY,
     account uuid not null,
-    inventory_id uuid not null references inventories (id),
+    inventory_id uuid not null references inventories (id) ON DELETE CASCADE,
     blueprint uuid not null,
     current_job_id uuid,
 
