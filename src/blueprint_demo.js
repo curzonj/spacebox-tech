@@ -12,9 +12,16 @@ module.exports = {
         },
         "production": {
             "manufacture": [{
-                "item": "6e573ecc-557b-4e05-9f3b-511b2611c474"
+                "item": "6e573ecc-557b-4e05-9f3b-511b2611c474" // fighter
             }, {
-                "item": "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b"
+                "item": "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b" // scaffold
+            }, {
+                "item": "d9c166f0-3c6d-11e4-801e-d5aa4697630f" // factory mod
+            }, {
+                "item": "33e24278-4d46-4146-946e-58a449d5afae" // ore mine mod
+            }],
+            "refine": [{
+                "item": "de726be0-3c6d-11e4-801e-d5aa4697630f" // ore
             }]
         }
     },
