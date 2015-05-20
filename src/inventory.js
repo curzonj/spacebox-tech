@@ -17,10 +17,10 @@ function build_ship_doc(blueprint) {
     }
 }
 
-function containerAuthorized(ctx, container, auth) {
-    var result = (container !== undefined && container !== null && container.account == auth.account)
+function containerAuthorized(ctx, container, account) {
+    var result = (container !== undefined && container !== null && container.account == account)
     if (!result)
-        ctx.debug('inv', auth.account, 'not granted access to', container)
+        ctx.debug('inv', account, 'not granted access to', container)
     return result
 }
 
@@ -221,13 +221,6 @@ var self = module.exports = {
 
                 return db.tx(req.ctx, function(db) {
                     return dao.getForUpdateOrFail(uuid, db).then(function(container) {
-                        if (!containerAuthorized(req.ctx, container, auth)) {
-                            throw new C.http.Error(403, "not_authorized", {
-                                account: auth,
-                                container: container
-                            })
-                        }
-
                         return db.any("select * from facilities where inventory_id = $1 for update ", uuid).
                         then(function(list) {
                             return Q.all(list.map(function(facility) {
@@ -246,6 +239,7 @@ var self = module.exports = {
         app.post('/containers', function(req, res) {
             var data = req.body /* = {
                 uuid: 'uuid',
+                account: 'uuid',
                 blueprint: 'uuid',
                 items: []
             } */
@@ -273,12 +267,12 @@ var self = module.exports = {
                             if (blueprint.type === 'spaceship') {
                                 next = next.then(function() {
                                     return db.none("insert into ships (id, account, container_id, container_slice, status, doc) values ($1, $2, null, null, 'undocked', $3)",
-                                                   [ data.uuid, auth.account, build_ship_doc(blueprint.uuid) ])
+                                                   [ data.uuid, data.account, build_ship_doc(blueprint.uuid) ])
                                 })
                             }
 
                             return next.then(function() {
-                                return buildContainer(req.ctx, data.uuid, auth.account, blueprint, db)
+                                return buildContainer(req.ctx, data.uuid, data.account, blueprint, db)
                             }).then(function() {
                                 // This endpoint is only called for objects that
                                 // didn't already exist, so there are no modules
@@ -321,10 +315,10 @@ var self = module.exports = {
             var uuid = req.param('uuid')
 
             Q.spread([C.http.authorize_req(req), dao.get(uuid)], function(auth, container) {
-                if (containerAuthorized(req.ctx, container, auth)) {
+                if (containerAuthorized(req.ctx, container, auth.account)) {
                     res.send(container.doc)
                 } else {
-                    res.sendStatus(401)
+                    res.sendStatus(403)
                 }
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
@@ -337,13 +331,13 @@ var self = module.exports = {
                 return db.tx(req.ctx, function(db) {
                     var container_slice = req.body.slice
 
-                    return db.one("select * from ships where id = $1 and account = $2 for update", [ req.param('uuid'), auth.account ]).
+                    return db.one("select * from ships where id = $1 and account = $2 for update", [ req.param('uuid'), req.body.account ]).
                     then(function(ship) {
                         var where
                         if (ship.container_id === null) {
-                            where = [ req.body.inventory, auth.account ]
+                            where = [ req.body.inventory, req.body.account ]
                         } else {
-                            where = [ ship.container_id, auth.account ]
+                            where = [ ship.container_id, req.body.account ]
                             container_slice = ship.container_slice
                         }
 
@@ -356,9 +350,9 @@ var self = module.exports = {
                         req.ctx.debug('inv', 'container', container)
                         req.ctx.debug('inv', 'request', req.body)
 
-                        if (!containerAuthorized(req.ctx, container, auth)) {
+                        if (!containerAuthorized(req.ctx, container, req.body.account)) {
                             throw new C.http.Error(403, "not_authorized", {
-                                account: auth,
+                                account: req.body.account,
                                 container: container
                             })
                         }
@@ -417,7 +411,7 @@ var self = module.exports = {
                 var inventory = container_row.doc,
                     blueprint  = blueprints[blueprintID]
 
-                if (!containerAuthorized(req.ctx, inventory, auth)) {
+                if (!containerAuthorized(req.ctx, inventory, auth.account)) {
                     throw new C.http.Error(403, "unauthorized", {
                         container: container_row.account,
                         auth: auth,
@@ -515,12 +509,12 @@ var self = module.exports = {
                 req.ctx.debug('inv', 'processing transfer for', auth)
 
                 if (auth.privileged !== true) {
-                    if (src_container === null || !containerAuthorized(req.ctx, src_container, auth)) {
+                    if (src_container === null || !containerAuthorized(req.ctx, src_container, auth.account)) {
                         throw new C.http.Error(403, "unauthorized", {
                             container: dataset.from_id,
                             account: auth.account
                         })
-                    } else if (dest_container === null || !containerAuthorized(req.ctx, dest_container, auth)) {
+                    } else if (dest_container === null || !containerAuthorized(req.ctx, dest_container, auth.account)) {
                         throw new C.http.Error(403, "unauthorized", {
                             container: dataset.to_id,
                             account: auth.account
