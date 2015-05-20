@@ -44,7 +44,7 @@ module.exports = {
     "2424c151-645a-40d2-8601-d2f82b2cf4b8": {
         "name": "Basic Outpost",
         "type": "structure",
-        "maxHealth": 30,
+        "maxHealth": 3000,
         "inventory_limits": {
             "modules": {
                 "capacity": 100,
@@ -189,7 +189,7 @@ module.exports = {
             "maxThrust": 0.1
         },
         "weapon": {
-            "damage": 1,
+            "damage": 2,
         }
     }
 };
