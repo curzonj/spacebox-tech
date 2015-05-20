@@ -48,7 +48,7 @@ var self = module.exports = {
             return Q.all([
                 Q.all(changes.added.map(function(v) {
                     var doc = build_facility_doc(container, blueprints[v])
-                    return db.none("insert into facilities (id, account, inventory_id, blueprint, has_resources, doc) values (uuid_generate_v1(), $1, $2, $3, $4, $5)", 
+                    return db.none("insert into facilities (id, account, inventory_id, blueprint, has_resources, trigger_at, doc) values (uuid_generate_v1(), $1, $2, $3, $4, current_timestamp, $5)", 
                         [ container.account, uuid, v, doc.has_resources, doc ])
                 })),
                 Q.all(C.array_unique(changes.removed).map(function(v) {

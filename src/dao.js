@@ -65,18 +65,6 @@ module.exports = {
         needAttention: function() {
             return db.query("select * from facilities where disabled = 'f' and trigger_at is not null and trigger_at < current_timestamp")
         },
-        upsert: function(uuid, doc, dbC) {
-            return (dbC || db).tx(function(db) {
-                return db.oneOrNone('update facilities set blueprint = $2, account = $3, has_resources = $4 where id =$1 returning id', [ uuid, doc.blueprint, doc.account, doc.resources ]).
-                then(function(data) {
-                    db.ctx.debug('dao', data)
-                    if (data === null) {
-                        return db.
-                            query('insert into facilities (id, blueprint, account, has_resources) values ($1, $2, $3, $4)', [ uuid, doc.blueprint, doc.account, doc.resources ])
-                    }
-                })
-            })
-        },
         get: function(uuid) {
             return db.one("select * from facilities where id=$1", uuid)
         }
