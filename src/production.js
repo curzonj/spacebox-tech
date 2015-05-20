@@ -314,7 +314,7 @@ function checkAndDeliverResources(ctx, uuid) {
             if (facility.doc.resources_checked_at === undefined) {
                 facility.doc.resources_checked_at = moment()
                 // The first time around this is just a dummy
-                return db.query("update facilities set trigger_at = $2 and doc = $3 where id = $1", [ uuid, moment().add(resource.period, 's').toDate(), facility.doc ])
+                return db.query("update facilities set trigger_at = $2, doc = $3 where id = $1", [ uuid, moment().add(resource.period, 's').toDate(), facility.doc ])
             } else if (
                 moment(facility.doc.resources_checked_at).add(resource.period, 's').isBefore(moment())
             ) {
@@ -330,10 +330,8 @@ function checkAndDeliverResources(ctx, uuid) {
                     })
 
                     facility.doc.resources_checked_at = moment()
-                    return db.query("update facilities set trigger_at = $2 and next_backoff = '1 second' and doc = $3 where id = $1", [ uuid, moment().add(resource.period, 's').toDate(), facility.doc ])
+                    return db.query("update facilities set trigger_at = $2, next_backoff = '1 second', doc = $3 where id = $1", [ uuid, moment().add(resource.period, 's').toDate(), facility.doc ])
                 }).fail(function(e) {
-                    ctx.log('build', "failed to deliver resources from "+uuid+": "+e.toString())
-
                     pubsub.publish(ctx, {
                         type: 'resources',
                         account: facility.account,
@@ -343,10 +341,7 @@ function checkAndDeliverResources(ctx, uuid) {
                         state: 'delivery_failed'
                     })
 
-                    // TODO is this the right thing to do?
-                    // don't fail the entire transaction, but the
-                    // only reason for this  is a inventory that is full
-                    return db.query("update facilities set next_backoff = next_backoff * 2, trigger_at = current_timestamp + next_backoff where id = $1", uuid)
+                    throw e
                 })
             } else {
                 ctx.log('build', uuid+" is waiting for "+moment(facility.doc.resources_checked_at).add(resource.period, 's').diff(moment()))
@@ -354,6 +349,9 @@ function checkAndDeliverResources(ctx, uuid) {
                 return Q(null)
             }
         })
+    }).fail(function(e) {
+        ctx.log('build', "failed to deliver resources from "+uuid+": "+e.toString())
+        return dao.facilities.incrementBackoff(uuid)
     })
 }
 

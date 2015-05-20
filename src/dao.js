@@ -67,6 +67,10 @@ module.exports = {
         },
         get: function(uuid) {
             return db.one("select * from facilities where id=$1", uuid)
+        },
+        incrementBackoff: function(uuid) {
+            return db.
+                one("update facilities set next_backoff = next_backoff * 2, trigger_at = current_timestamp + next_backoff where id = $1 returning id", uuid)
         }
     
     },
