@@ -98,25 +98,31 @@ var self = module.exports = {
             throw new Error("invalid params for transfer: items must be an array")
         }
 
+        function default_usage_remove_calc(slot, item) {
+            src_doc.usage[slot] = src_doc.usage[slot] - (item.blueprint.volume * item.quantity)
+        }
+
         if (src_container !== null) {
             var src_doc = src_container.doc
 
             if (items.some(function(item) {
-                if (item.ship !== undefined)
-                    item.quantity = 1
-
-                var slot = item.blueprint.type == "spaceship" ? "hanger" : "cargo"
-                src_doc.usage[slot] = src_doc.usage[slot] - (item.blueprint.volume * item.quantity)
-
                 if (item.ship !== undefined) {
                     var i = src_doc.mooring.indexOf(item.ship.id)
+
                     if (i > -1) {
                         src_doc.mooring.splice(i, 1)
                         src_doc.usage.mooring = src_doc.mooring.length
+                    } else {
+                        item.quantity = 1
+                        default_usage_remove_calc("hanger", item)
                     }
+
 
                     return (item.ship.container_id !== src_container.id || item.ship.container_slice !== src_slice)
                 } else {
+                    var slot = item.blueprint.type == "spaceship" ? "hanger" : "cargo"
+                    default_usage_remove_calc(slot, item)
+
                     var slice = src_doc[slot][src_slice]
                     if (slice === undefined)
                         slice = src_doc[slot][src_slice] = {}
@@ -142,9 +148,16 @@ var self = module.exports = {
                     }
                 })
             }
+
+            if (Object.keys(src_doc.usage).some(function(k) {
+                return (src_doc.usage[k] < 0)
+            })) {
+                console.log(src_doc)
+                throw new Error("something messed up the usage")
+            }
         }
 
-        function default_usage_calc(slot, item) {
+        function default_usage_add_calc(slot, item) {
             dest_doc.usage[slot] = dest_doc.usage[slot] + (item.blueprint.volume * item.quantity)
         }
 
@@ -159,7 +172,7 @@ var self = module.exports = {
                         dest_doc.usage.mooring = dest_doc.mooring.length
                     } else {
                         item.quantity = 1
-                        default_usage_calc("hanger", item)
+                        default_usage_add_calc("hanger", item)
                     }
                 } else {
                     var slot = item.blueprint.type == "spaceship" ? "hanger" : "cargo"
@@ -173,7 +186,7 @@ var self = module.exports = {
 
                     slice[item.blueprint.uuid] = slice[item.blueprint.uuid] + item.quantity
 
-                    default_usage_calc(slot, item)
+                    default_usage_add_calc(slot, item)
                 }
             })
 

@@ -290,7 +290,11 @@ function checkAndProcessFacilityJob(ctx, facility_id) {
     }).fail(function(e) {
         ctx.log('build', "failed to handle job in", facility_id, ": " + e.toString())
         ctx.log('build', e.stack)
-        process.exit()
+
+        if (process.env.PEXIT_ON_JOB_FAIL == '1') {
+            console.log("exiting for job debugging per ENV['PEXIT_ON_JOB_FAIL']")
+            process.exit()
+        }
 
         if (job !== undefined && job.id !== undefined)
             return dao.jobs.incrementBackoff(job.id)
