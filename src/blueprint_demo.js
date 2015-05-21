@@ -7,7 +7,7 @@ module.exports = {
         "build": {
             "time": 3,
             "resources": {
-                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 5
             }
         },
         "production": {
@@ -27,7 +27,7 @@ module.exports = {
     },
     "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": {
         "name": "Metal",
-        "volume": 1,
+        "volume": 2,
         "type": "resource"
     },
     "de726be0-3c6d-11e4-801e-d5aa4697630f": {
@@ -73,23 +73,23 @@ module.exports = {
         "build": {
             "time": 3,
             "resources": {
-                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 5
             }
         },
     },
     "ffb74468-7162-4bfb-8a0e-a8ae72ef2a8b": {
         "name": "Basic Scaffold",
         "type": "deployable",
-        "volume": 20,
+        "volume": 2,
         "build": {
             "time": 2, // should be 10 atm
             "resources": {
-                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 1
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
             }
         },
         "inventory_limits": {
             "cargo": {
-                "capacity": 10, // m3
+                "capacity": 100, // m3
             },
             "hanger": {
                 "capacity": 0, // tonnes, megagrams, 1000kg
@@ -111,8 +111,8 @@ module.exports = {
         "production": {
             "generate": {
                 "type": "de726be0-3c6d-11e4-801e-d5aa4697630f",
-                "period": 2,
-                "quantity": 5
+                "period": 60,
+                "quantity": 1
                 /* These are the tech functions for this
                 "functions": {
                     "output":     [ [ 1, 0.4 ], [ 20, 0 ] ],
@@ -130,7 +130,7 @@ module.exports = {
         "build": {
             "time": 3, // should be 30 atm
             "resources": {
-                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 2
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": 15
             }
         }
     },
