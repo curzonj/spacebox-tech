@@ -14,7 +14,7 @@ CREATE TABLE facilities (
     current_job_id uuid,
 
     disabled boolean not null default false,
-    has_resources boolean not null default false,
+    facility_type varchar(255) not null,
     doc json not null,
 
     trigger_at timestamp with time zone,
@@ -42,11 +42,22 @@ alter table facilities add foreign key (current_job_id) references jobs ON DELET
 --    doc json not null
 --);
 
-CREATE TABLE ships (
+CREATE TABLE items (
     id uuid PRIMARY KEY,
-    status varchar(255),
-    container_id uuid references inventories (id),
+    blueprint_id uuid not null,
+    container_id uuid references inventories (id) ON DELETE CASCADE,
     container_slice varchar(255),
+    locked boolean not null default false,
     account uuid not null,
     doc json not null
 );
+
+CREATE TABLE blueprints (
+    id uuid PRIMARY KEY,
+    tech varchar(255) not null,
+    parameters json not null,
+    doc json not null
+);
+
+alter table facilities add foreign key (blueprint) references blueprints (id);
+alter table items add foreign key (blueprint_id) references blueprints (id);

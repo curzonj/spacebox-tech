@@ -7,14 +7,6 @@ var Q = require('q'),
     pubsub = require('./pubsub.js'),
     blueprints = require('./blueprints.js')
 
-// the facility needs a doc because in the future the facility
-// may be configured
-function build_facility_doc(container, blueprint) {
-    return {
-        has_resources: (blueprint.production.generate !== undefined)
-    }
-}
-
 // This module exists only to eliminate a circular dependency between prod and inv
 // prod -> inv -> prod_dep
 var self = module.exports = {
@@ -37,8 +29,14 @@ var self = module.exports = {
             dao.inventory.getForUpdateOrFail(uuid, db),
             db.any("select * from facilities where inventory_id = $1 for update", uuid)
         ], function(blueprints, container, current_facilities) {
-            var new_facility_modules = container.doc.modules.concat(container.doc.blueprint).
-                    filter(function(v) { return (blueprints[v].production !== undefined) }),
+            var container_bp = blueprints[container.doc.blueprint]
+
+            if (isNaN(container_bp.capacity) || container_bp.capacity <= 0)
+                return 
+
+            var new_facility_modules = container.doc.modules.slice().
+                    concat(container_bp.native_modules || []).
+                    filter(function(v) { return (blueprints[v].facility_type !== undefined) }),
                 current_facility_modules =
                     current_facilities.map(function(v) { return v.blueprint }),
                 changes = C.compute_array_changes(current_facility_modules, new_facility_modules)
@@ -47,9 +45,8 @@ var self = module.exports = {
 
             return Q.all([
                 Q.all(changes.added.map(function(v) {
-                    var doc = build_facility_doc(container, blueprints[v])
-                    return db.none("insert into facilities (id, account, inventory_id, blueprint, has_resources, trigger_at, doc) values (uuid_generate_v1(), $1, $2, $3, $4, current_timestamp, $5)", 
-                        [ container.account, uuid, v, doc.has_resources, doc ])
+                    return db.none("insert into facilities (id, account, inventory_id, blueprint, facility_type, trigger_at, doc) values (uuid_generate_v1(), $1, $2, $3, $4, current_timestamp, $5)", 
+                        [ container.account, uuid, v, blueprints[v].facility_type, {} ])
                 })),
                 Q.all(C.array_unique(changes.removed).map(function(v) {
                     // If there is still some of the removed facilities
@@ -66,8 +63,7 @@ var self = module.exports = {
                     }
                 })),
                 Q.all(C.array_unique(changes.unchanged).map(function(v) {
-                    var doc = build_facility_doc(container, blueprints[v])
-                    return db.none("update facilities set disabled = false, doc = $3 where inventory_id = $1 and blueprint = $2", [ uuid, v, doc ])
+                    return db.none("update facilities set disabled = false where inventory_id = $1 and blueprint = $2", [ uuid, v ])
                 }))
             ]).then(function() {
                 pubsub.publish(db.ctx, {

@@ -1,27 +1,28 @@
 'use strict';
 
 var uuidGen = require('node-uuid'),
+    path = require('path'),
+    FS = require("q-io/fs"),
+    db = require('spacebox-common-native').db,
+    C = require('spacebox-common'),
     Q = require('q')
 
-var blueprints = require('./blueprint_demo.js');
-for (var uuid in blueprints) {
-    blueprints[uuid].uuid = uuid;
-}
-
-module.exports = {
+var self = module.exports = {
     getData: function() {
-        return Q(blueprints)
+        return db.many("select * from blueprints").
+        then(function(data) {
+            return data.reduce(function(acc, row) {
+                acc[row.id] = row.doc
+                return acc
+            }, {})
+        })
     },
     router: function(app) {
         app.get('/blueprints', function(req, res) {
-            res.send(blueprints);
-        });
-
-        app.post('/blueprints', function(req, res) {
-            // normally this would have to come from a tech design
-            var uuid = uuidGen.v1();
-            blueprints[uuid] = req.body;
-            res.sendStatus(201);
+            //  TODO support account specific blueprints
+            self.getData().then(function(blueprints) {
+                res.send(blueprints);
+            }).fail(C.http.errHandler(req, res, console.log)).done()
         });
     }
 }

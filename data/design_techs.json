@@ -1,0 +1,218 @@
+{
+  "factory": {
+    "name": "Manufacturing",
+    "type": "facility",
+    "attributes": {
+      "facility_type": "manufacturing"
+    },
+    "parameters": {
+      "max_build_size": {
+        "min": 100,
+        "max": 10000000,
+        "step_size": [ [ 1, 1 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      }
+    },
+    "functions": {
+      "size": {
+        "parameters": [ "max_build_size" ],
+        "components": [ [ 0.01, 1 ] ]
+      }
+    }
+  },
+  "lab": {
+    "name": "Labratory",
+    "type": "facility",
+    "attributes": {
+      "facility_type": "research"
+    },
+    "functions": {
+      "size": {
+        "parameters": [ ],
+        "components": [ [ 1 ] ]
+      }
+    }
+  },
+  "shipyard": {
+    "name": "Shipyard",
+    "type": "facility",
+    "attributes": {
+      "facility_type": "refitting"
+    },
+    "functions": {
+      "size": {
+        "parameters": [ ],
+        "components": [ [ 1 ] ]
+      }
+    }
+  },
+  "refinery": {
+    "name": "Refinery",
+    "type": "facility",
+    "attributes": {
+      "facility_type": "refining"
+    },
+    "functions": {
+      "size": {
+        "parameters": [ ],
+        "components": [ [ 1 ] ]
+      }
+    }
+  },
+  "mining": {
+    "name": "Extraction",
+    "type": "facility",
+    "attributes": {
+      "facility_type": "generating"
+    },
+    "parameters": {
+      "generating_period": {
+        "min": 100,
+        "max": 10000000,
+        "step_size": [ [ 1, 1 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "generating_multiple": {
+        "min": 1,
+        "max": 10,
+        "step_size": [ [ 1, 1 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      }
+    },
+    "functions": {
+      "generating_quantity": {
+        "parameters": [ "generating_period", "generating_multiple" ],
+        "components": [ [ 10, 1, 1 ] ]
+      },
+      "size": {
+        "parameters": [ "generating_period", "generating_multiple" ],
+        "components": [ [ 200, 0, 0.95 ], [ -1, 0.3, 0.7 ] ]
+      }
+    }
+  },
+  "construction": {
+    "name": "Construction",
+    "type": "facility",
+    "attributes": {
+      "facility_type": "construction"
+    },
+    "functions": {
+      "size": {
+        "parameters": [ ],
+        "components": [ [ 1 ] ]
+      }
+    }
+  },
+  "laser": {
+    "name": "Laser",
+    "type": "weapon",
+    "parameters": {
+      "damage": {
+        "min": 1,
+        "max": 20,
+        "step_size": [ [ 1, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      }
+    },
+    "functions": {
+      "size": {
+        "parameters": [ "damage" ],
+        "components": [ [ 10, 2 ] ]
+      }
+    }
+  },
+  "spaceship": {
+    "name": "Spaceship",
+    "type": "vessel",
+    "attributes": {
+      "mooring_limit": 1
+    },
+    "parameters": {
+      "max_docking_size": {
+        "min": 0,
+        "max": 10000,
+        "step_size": [ [ 0.4, 1 ], [ 10, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "capacity": {
+        "min": 0,
+        "max": 100000000,
+        "step_size": [ [ 0.4, 1 ], [ 100, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "maxHealth": {
+        "min": 10,
+        "max": 1000000,
+        "step_size": [ [ 0.4, 1 ], [ 10, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "thrust": {
+        "min": 1,
+        "max": 1,
+        "step_size": [ [ 1, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "manuvering_thrust": {
+        "min": 1,
+        "max": 1,
+        "step_size": [ [ 1, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "tech_level": {
+        "min": 1,
+        "max": 1,
+        "step_size": [ [ 20, 1 ], [ 10, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      }
+    },
+    "functions": {
+      "size": {
+        "min": 1,
+        "max": 10000,
+        "parameters": [ "max_docking_size", "capacity", "maxHealth", "tech_level" ],
+        "components": [ [ 0.005, 0, 0.7, 0.7, -1 ], [ 5, 1, 0, 0, 0 ], [ 0.1, 0, 0.5, 0, 0 ] ]
+      }
+    }
+  },
+  "structure": {
+    "name": "Structure",
+    "type": "vessel",
+    "attributes": {
+      "mooring_limit": 1
+    },
+    "parameters": {
+      "max_docking_size": {
+        "min": 0,
+        "max": 10000,
+        "step_size": [ [ 0.4, 1 ], [ 10, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "capacity": {
+        "min": 0,
+        "max": 100000000,
+        "step_size": [ [ 0.4, 1 ], [ 100, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "maxHealth": {
+        "min": 10,
+        "max": 1000000,
+        "step_size": [ [ 0.4, 1 ], [ 10, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "tech_level": {
+        "min": 1,
+        "max": 5,
+        "step_size": [ [ 20, 1 ], [ 10, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      }
+    },
+    "functions": {
+      "size": {
+        "min": 1,
+        "max": 10000,
+        "parameters": [ "max_docking_size", "capacity", "maxHealth", "tech_level" ],
+        "components": [ [ 0.002, 0, 0.7, 0.7, -1 ], [ 5, 1, 0, 0, 0 ], [ 0.1, 0, 0.5, 0, 0 ] ]
+      }
+    }
+  }
+}

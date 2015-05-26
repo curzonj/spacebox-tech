@@ -48,7 +48,7 @@ function updateInventory(action, uuid, slice, items, db) {
         }), db)
 
         return inventory.transfer.apply(inventory, args).tap(function() {
-            db.ctx.debug('build', 'contents after', action, container.cargo)
+            db.ctx.debug('build', 'contents after', action, container.doc.contents)
         })
     })
 }
@@ -74,34 +74,54 @@ function fullfillResources(ctx, data, db) {
         ctx.log('build', "running " + job.uuid + " at " + job.facility)
 
         switch(job.action) {
-            case 'refine':
+            case 'refining':
                 return consume(job.inventory_id, job.slice, [{
                     blueprint: job.blueprint,
                     quantity: job.quantity
                 }], db)
-            case 'refit':
+            case 'refitting':
                 ctx.debug('build', job)
 
+                // If the job.inventory_id !== job.target, then the item needs to be in the inventory id
+                // If a vessel is refitting itself, then we need to check with spodb and lock it down
                 var next = Q(null)
 
-                if(blueprint.type === 'spaceship') {
+                if (job.inventory_id != job.target) {
                     next = next.then(function() {
-                        db.
-                        one("update ships set status = 'refitting' where id = $1 and container_id = $2 and container_slice = $3 and status = 'docked' returning id",
+                        return db.
+                        // This also ensures that the the target is in the container
+                        one("update items set locked = true where id = $1 and container_id = $2 and container_slice = $3 returning id",
                             [ job.target, job.inventory_id, job.slice ])
                     })
-                } else if(blueprint.type == 'structure') {
-                    if (job.inventory_id != job.target)
-                        throw("a structure can only refit itself")
-                } else {
-                    throw("unknown type for refitting: "+blueprint.type)
                 }
 
                 var changes = C.compute_array_changes(container.doc.modules, job.modules)
+
                 return next.then(function() {
-                    return consume(job.inventory_id, job.slice, changes.added.map(function(mod) {
+                    container.doc.modules = changes.removed.reduce(function(acc, uuid) {
+                        var i = acc.indexOf(uuid)
+                        return acc.splice(i, 1)
+                    }, container.doc.modules)
+
+                    container.doc.usage = changes.removed.reduce(function(acc, uuid, i) {
+                        return (acc - blueprints[uuid].size)
+                    }, container.doc.usage)
+
+                    ctx.debug('build', "updated modules", container.doc.modules)
+                    ctx.debug('build', "updated inventory", container.doc.contents)
+
+                    return inventory.dao.update(job.target, container.doc, db)
+                }).then(function() {
+                    return produce(job.inventory_id, job.slice, changes.removed.map(function(key) {
                         return {
-                            blueprint: mod,
+                            blueprint: key,
+                            quantity: 1
+                        }
+                    }), db)
+                }).then(function() {
+                    return consume(job.inventory_id, job.slice, changes.added.map(function(key) {
+                        return {
+                            blueprint: key,
                             quantity: 1
                         }
                     }), db)
@@ -130,11 +150,11 @@ function fullfillResources(ctx, data, db) {
 }
 
 function deliverJob(ctx, job, db) {
-    // refit and construct below depends on the return value of this
+    // refit and construction below depends on the return value of this
     var next = dao.inventory.getForUpdateOrFail(job.inventory_id, db)
 
     switch (job.action) {
-        case "manufacture":
+        case "manufacturing":
             return next.then(function() {
                 return produce(job.inventory_id, job.slice, [{
                     blueprint: job.blueprint,
@@ -142,7 +162,7 @@ function deliverJob(ctx, job, db) {
                 }], db)
             })
 
-        case "refine":
+        case "refining":
             return next.then(function() {
                 return produce(job.inventory_id, job.slice, Object.keys(job.outputs).map(function(key) {
                     return {
@@ -151,44 +171,36 @@ function deliverJob(ctx, job, db) {
                     }
                 }), db)
             })
-        case "refit":
+        case "refitting":
             ctx.debug('build', job)
 
             return next.then(function(container) {
+                return Q.all([
+                    container,
+                    blueprints.getData()
+                ])
+            }).spread(function(container, blueprints) {
                 var changes = C.compute_array_changes(container.doc.modules, job.modules)
 
-                return produce(job.inventory_id, job.slice, changes.removed.map(function(key) {
-                    return {
-                        blueprint: key,
-                        quantity: 1
-                    }
-                }), db).then(function() {
-                    // The transaction modified the inventory above returning leftovers
-                    return dao.inventory.getForUpdateOrFail(job.target, db).
-                    then(function(container) {
-                        container.doc.modules = job.modules.slice()
+                container.doc.modules = job.modules.slice()
+                container.doc.usage = changes.added.reduce(function(acc, uuid, i) {
+                    return (acc + blueprints[uuid].size)
+                }, container.doc.usage)
 
-                        ctx.debug('build', "updated modules", container.doc.modules)
-                        ctx.debug('build', "updated inventory", container.doc.cargo)
+                ctx.debug('build', "updated modules", container.doc.modules)
+                ctx.debug('build', "updated inventory", container.doc.contents)
 
-                        return inventory.dao.update(job.target, container.doc, db)
-                    })
-                })
+                return inventory.dao.update(job.target, container.doc, db)
             }).then(function() {
                 return self.updateFacilities(job.inventory_id, db)
             }).then(function() {
                 return blueprints.getData()
             }).then(function(blueprints) {
-                if (blueprints[job.blueprint].type === 'spaceship')
-                    return db.one("update ships set status = 'docked' where id = $1 and status = 'refitting' returning id", job.target).fail(function(e) {
-                        return db.any("select * from ships").then(function(data) {
-                            console.log('all ships', data)
-                        })
-
-                        throw e
-                    })
+                if (job.inventory_id != job.target) {
+                    return db.one("update items set locked = false where id = $1 returning id", job.target)
+                }
             })
-        case "construct":
+        case "construction":
             return next.tap(function(_) {
                 return C.request('3dsim', 'POST', 204, '/spodb/'+job.inventory_id, {
                     blueprint: job.blueprint })
@@ -355,6 +367,8 @@ function checkAndDeliverResources(ctx, uuid) {
         })
     }).fail(function(e) {
         ctx.log('build', "failed to deliver resources from "+uuid+": "+e.toString())
+        ctx.log('build', e.stack)
+
         return dao.facilities.incrementBackoff(uuid)
     })
 }
@@ -377,7 +391,7 @@ setInterval(function() {
             return data.reduce(function(next, facility) {
                 ctx.debug('build', 'facility', facility)
 
-                if (facility.has_resources) {
+                if (facility.facility_type == 'generating') {
                     return next.then(function() {
                         return checkAndDeliverResources(ctx, facility.id)
                     })
@@ -461,35 +475,40 @@ var self = module.exports = {
                     })
                 }
 
-                var facilityType = blueprints[facility.blueprint]
-                var canList = facilityType.production[job.action]
                 var blueprint = blueprints[job.blueprint]
+                var facilityType = blueprints[facility.blueprint]
 
-                if (canList === undefined || !canList.some(function(e) {
-                    return e.item == blueprint.uuid
-                })) {
-                    req.ctx.debug('build', canList)
-                    req.ctx.debug('build', job.blueprint)
-
+                if (facilityType.facility_type !== job.action)
                     throw new C.http.Error(422, "invalid_job", {
-                        msg: "facility is unable to produce that"
+                        msg: "facility is unable to do that"
                     })
-                }
-
 
                 var next = Q(null)
 
                 switch(job.action) {
-                    case 'refine':
+                    case 'refining':
+                        if (blueprint.refine === undefined)
+                            throw new C.http.Error(422, "invalid_job", {
+                                msg: "facility is unable to do that"
+                            })
+
                         job.outputs = blueprint.refine.outputs
                         job.duration = blueprint.refine.time
+
                         break;
-                    case 'refit':
+                    case 'refitting':
+                        if (blueprint.type !== 'vessel')
+                            throw new C.http.Error(422, "invalid_job", {
+                                msg: "facility is unable to do that"
+                            })
+
                         job.duration = 30
 
-                        next.then(function() {
+                        next = next.then(function() {
                             return inventory.dao.get(job.target)
                         }).then(function(row) {
+                            // TODO validate that the target can handle the new modules
+                            
                             if (row.doc.blueprint !== job.blueprint)
                                 throw new C.http.Error(422, "blueprint_mismatch", {
                                     target: row,
@@ -498,11 +517,34 @@ var self = module.exports = {
                         })
 
                         break;
-                    default:
+                    case 'manufacturing':
                         job.duration = blueprint.build.time
 
-                        if (job.action == "construct")
-                            job.quantity = 1
+                        if (blueprint.build === undefined ||
+                            blueprint.size > facilityType.max_build_size)
+                            throw new C.http.Error(422, "invalid_job", {
+                                msg: "facility is unable to do that"
+                            })
+
+                        break;
+                    case 'construction':
+                        job.duration = blueprint.build.time
+                        job.quantity = 1
+
+                        if (blueprint.type !== 'vessel' ||
+                            blueprint.build === undefined ||
+                            blueprint.size > facilityType.max_build_size)
+                            throw new C.http.Error(422, "invalid_job", {
+                                msg: "facility is unable to do that"
+                            })
+
+                        break;
+                    default:
+                        // This really only catches someone trying to submit a `generating`
+                        // job which wouldn't do anything anyways
+                        throw new C.http.Error(422, "invalid_job", {
+                            msg: "invalid job action"
+                        })
                 }
 
                 job.account = auth.account

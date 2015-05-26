@@ -1,0 +1,89 @@
+[
+  {
+    "name": "Drone",
+    "tech": "spaceship",
+    "parameters": {
+      "max_docking_size": 0,
+      "capacity": 20,
+      "maxHealth": 400,
+      "thrust": 1,
+      "manuvering_thrust": 1,
+      "tech_level": 1
+    }
+  },
+  {
+    "name": "Space Crate",
+    "tech": "structure",
+    "parameters": {
+      "max_docking_size": 0,
+      "capacity": 2000,
+      "maxHealth": 400,
+      "tech_level": 1
+    }
+  },
+  {
+    "name": "Drone Hanger",
+    "tech": "structure",
+    "parameters": {
+      "max_docking_size": 50,
+      "capacity": 4000,
+      "maxHealth": 1000,
+      "tech_level": 1
+    }
+  },
+  {
+    "name": "Drone Laser",
+    "tech": "laser",
+    "parameters": {
+      "damage": 1
+    }
+  },
+  {
+    "name": "Basic Factory",
+    "tech": "factory",
+    "parameters": {
+      "max_build_size": 1000
+    }
+  },
+  {
+    "name": "Basic Labratory",
+    "tech": "lab",
+    "parameters": {}
+  },
+  {
+    "name": "Basic Refinery",
+    "tech": "refinery",
+    "parameters": {}
+  },
+  {
+    "name": "Basic Scaffolding",
+    "tech": "construction",
+    "parameters": {}
+  },
+  {
+    "name": "Small Asteroid Miner",
+    "tech": "mining",
+    "parameters": {
+        "generating_period": 1,
+        "generating_multiple": 1
+    }
+  },
+  {
+    "name": "Industrial Seed Ship",
+    "tech": "spaceship",
+    "native_modules": [
+      { "name": "Small Asteroid Miner" },
+      { "name": "Basic Labratory" },
+      { "name": "Basic Refinery" },
+      { "name": "Basic Factory" }
+    ],
+    "parameters": {
+      "max_docking_size": 50,
+      "capacity": 2500,
+      "maxHealth": 1000,
+      "thrust": 1,
+      "manuvering_thrust": 1,
+      "tech_level": 1
+    }
+  }
+]
