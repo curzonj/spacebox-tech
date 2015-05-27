@@ -174,28 +174,16 @@ function deliverJob(ctx, job, db) {
         case "refitting":
             ctx.debug('build', job)
 
-            return next.then(function(container) {
+            return next.then(function() {
+                return dao.inventory.getForUpdateOrFail(job.target, db)
+            }).then(function(container) {
                 return Q.all([
                     container,
                     blueprints.getData()
                 ])
             }).spread(function(container, blueprints) {
-                var changes = C.compute_array_changes(container.doc.modules, job.modules)
-
-                container.doc.modules = job.modules.slice()
-                container.doc.usage = changes.added.reduce(function(acc, uuid, i) {
-                    return (acc + blueprints[uuid].size)
-                }, container.doc.usage)
-
-                ctx.debug('build', "updated modules", container.doc.modules)
-                ctx.debug('build', "updated inventory", container.doc.contents)
-
-                return inventory.dao.update(job.target, container.doc, db)
+                return inventory.setModules(container, job.modules.map(function(uuid) { return blueprints[uuid] }))
             }).then(function() {
-                return self.updateFacilities(job.inventory_id, db)
-            }).then(function() {
-                return blueprints.getData()
-            }).then(function(blueprints) {
                 if (job.inventory_id != job.target) {
                     return db.one("update items set locked = false where id = $1 returning id", job.target)
                 }
@@ -521,7 +509,7 @@ var self = module.exports = {
                         job.duration = blueprint.build.time
 
                         if (blueprint.build === undefined ||
-                            blueprint.size > facilityType.max_build_size)
+                            blueprint.size > facilityType.max_job_size)
                             throw new C.http.Error(422, "invalid_job", {
                                 msg: "facility is unable to do that"
                             })
@@ -533,9 +521,14 @@ var self = module.exports = {
 
                         if (blueprint.type !== 'vessel' ||
                             blueprint.build === undefined ||
-                            blueprint.size > facilityType.max_build_size)
+                            blueprint.size > facilityType.max_job_size)
                             throw new C.http.Error(422, "invalid_job", {
                                 msg: "facility is unable to do that"
+                            })
+
+                        if (job.target !== job.inventory_id)
+                            throw new C.http.Error(422, "invalid_job", {
+                                msg: "construction jobs can only modify their own container"
                             })
 
                         break;

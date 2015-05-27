@@ -9,6 +9,8 @@ var uuidGen = require('node-uuid'),
     C = require('spacebox-common'),
     Q = require('q')
 
+var designs = []
+
 db.tx(function(db) {
 return Q.all([
     FS.read(path.resolve(__filename, "../../data/raw_materials.json")).
@@ -49,6 +51,7 @@ return Q.all([
                 uuid: uuid,
                 name: d.name,
                 type: bp_type,
+                tech_type: tech.type,
                 tech_level: 1,
             }
 
@@ -73,13 +76,17 @@ return Q.all([
             }
 
             if (d.native_modules !== undefined) {
-                doc.native_modules = d.native_modules
+                doc.native_modules = d.native_modules.map(function(query) {
+                    var match = C.find(designs, query)
+                    return match.uuid
+                })
             }
 
             /* TODO
              * add the resources to the db too
              * vessel subsystems
              */
+            designs.push(doc)
 
             return db.one("insert into blueprints (id, tech, parameters, doc) values ($1, $2, $3, $4) returning id", [
                 uuid,

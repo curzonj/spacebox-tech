@@ -1,0 +1,9 @@
+{
+  "blueprint_query": { "name": "Industrial Seed Ship" },
+  "contents": [
+    {
+      "query": { "name": "Metal" },
+      "quantity": 35
+    }
+  ]
+}

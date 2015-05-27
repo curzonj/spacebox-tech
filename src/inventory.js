@@ -2,6 +2,8 @@
 
 var uuidGen = require('node-uuid'),
     db = require('spacebox-common-native').db,
+    path = require('path'),
+    FS = require("q-io/fs"),
     Q = require('q'),
     C = require('spacebox-common')
 
@@ -72,6 +74,29 @@ var self = module.exports = {
         ctx.debug('inv', i)
 
         return dao.update(container.id, container.doc, dbC)
+    },
+    setModules: function(container, list, db) {
+        var modules, blueprints
+
+        blueprints.forEach(function(b) {
+            modules.push(b.uuid)
+            blueprints[b.uuid] = b
+        })
+
+        var changes = C.compute_array_changes(container.doc.modules, modules)
+
+        container.doc.modules = modules
+        container.doc.usage = changes.added.reduce(function(acc, uuid, i) {
+            return (acc + blueprints[uuid].size)
+        }, container.doc.usage)
+
+        db.ctx.debug('inv', "updated modules", container.doc.modules)
+        db.ctx.debug('inv', "updated inventory", container.doc.contents)
+
+        return dao.update(container.id, container.doc, db).
+        then(function() {
+            return production.updateFacilities(container.id, db)
+        })
     },
     transfer: function(src_container, src_slice, dest_container, dest_slice, items, db) {
         if (db === undefined)
@@ -281,6 +306,50 @@ var self = module.exports = {
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
+
+        app.post('/vessels/starter', function(req, res) {
+            var data = req.body
+
+            Q.all([
+                C.http.authorize_req(req, true),
+                blueprints.getData(),
+                FS.read(path.resolve(__filename, "../../data/starter_loadout.json")).then(function (content) { return JSON.parse(content) })
+            ]).then(function(auth, blueprints, loadout) {
+                var blueprint = C.find(blueprints, loadout.blueprint_query)
+
+                return db.tx(req.ctx, function(db) {
+                    return db.one("select count(*) as count from items where account = $1", data.account).
+                    then(function(row) {
+                        if (row.count > 0)
+                            throw new C.http.Error(403, "invalid_request", {
+                                msg: "This account already has assets"
+                            })
+                    })
+                }).then(function() {
+                    return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)",
+                                   [ data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid) ])
+                }).then(function() {
+                    return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
+                }).then(function() {
+                    return dao.getForUpdateOrFail(data.uuid, db).
+                    then(function(dest_container) {
+                        return self.transfer(null, null, dest_container, 'default',
+                             loadout.contents.map(function(obj) {
+                                 return {
+                                     blueprint: C.find(blueprints, obj.query),
+                                     quantity: obj.quantity
+                                 }
+                             }), db)
+                    })
+                }).then(function(data) {
+                    res.send({
+                        blueprint_id: blueprint.uuid
+                    })
+                })
+            }).fail(C.http.errHandler(req, res, console.log)).done()
+        })
+         
+
         // this is how spodb undocks vessels
         app.post('/vessels', function(req, res) {
             var data = req.body /* = {
@@ -288,6 +357,7 @@ var self = module.exports = {
                 account: 'uuid',
                 blueprint: 'uuid',
                 from: { container_id, slice },
+                modules: [],
                 contents: []
             } */
             req.ctx.debug('inv', data)
@@ -302,9 +372,6 @@ var self = module.exports = {
                                 db.oneOrNone("select * from items where id = $1", data.uuid),
                                 Q.fcall(function() {
                                     if (data.from.uuid === null) {
-                                        if (auth.privileged !== true)
-                                            throw new Error("must provide a spawn source")
-
                                         return null
                                     } else {
                                         return dao.getForUpdateOrFail(data.from.uuid, db)
@@ -329,14 +396,12 @@ var self = module.exports = {
                                         return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)",
                                                        [ data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid) ])
                                     }).then(function() {
-                                            return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
+                                        return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
                                     }).then(function() {
-                                        if (data.contents !== undefined && data.contents.length > 0) {
-                                            data.contents.forEach(function(t) { t.blueprint = blueprints[t.blueprint] })
-
+                                        if (data.modules !== undefined && data.modules.length > 0) {
                                             return dao.getForUpdateOrFail(data.uuid, db).
                                             then(function(dest_container) {
-                                                return self.transfer(null, null, dest_container, 'default', data.contents, db)
+                                                return self.setModules(dest_container, data.modules.map(function(uuid) { return blueprints[uuid] }), db)
                                             })
                                         }
                                     })
@@ -445,9 +510,6 @@ var self = module.exports = {
                                 }], db).
                                 then(function() {
                                     return buildContainerIfNeeded(req.ctx, item.id, auth.account, blueprint, db)
-                                }).then(function() {
-                                    if (blueprint.production !== undefined)
-                                        return production.updateFacilities(item.id, db)
                                 }).then(function() {
                                     res.send(C.deepMerge(doc, {
                                         uuid: item.id

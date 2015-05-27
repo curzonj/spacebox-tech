@@ -42,7 +42,14 @@
     "name": "Basic Factory",
     "tech": "factory",
     "parameters": {
-      "max_build_size": 1000
+      "max_job_size": 1000
+    }
+  },
+  {
+    "name": "Drone Maintenance Bay",
+    "tech": "shipyard",
+    "parameters": {
+      "max_job_size": 100
     }
   },
   {
@@ -73,6 +80,7 @@
     "tech": "spaceship",
     "native_modules": [
       { "name": "Small Asteroid Miner" },
+      { "name": "Drone Maintenance Bay" },
       { "name": "Basic Labratory" },
       { "name": "Basic Refinery" },
       { "name": "Basic Factory" }
