@@ -7,7 +7,7 @@ var WebSockets = require("ws"),
 var listeners = []
 
 module.exports = {
-    publish: function (ctx, message) {
+    publish: function(ctx, message) {
         ctx.log('pubsub', "publishing to %d listeners", listeners.length, message)
 
         listeners.forEach(function(ws) {
@@ -23,7 +23,7 @@ module.exports = {
     setup_websockets: function(server) {
         var wss = new WebSockets.Server({
             server: server,
-            verifyClient: function (info, callback) {
+            verifyClient: function(info, callback) {
                 var parts = uriUtils.parse(info.req.url, true)
                 var token = parts.query.token
 
@@ -40,7 +40,7 @@ module.exports = {
             listeners.push(ws)
 
             ws.on('close', function() {
-                var i= listeners.indexOf(ws)
+                var i = listeners.indexOf(ws)
                 if (i > -1) {
                     listeners.splice(i, 1)
                 }

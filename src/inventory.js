@@ -28,7 +28,7 @@ function containerAuthorized(ctx, container, account) {
 
 function build_limits(src) {
     return {
-        "moored":  src.mooring_limit || 0,
+        "moored": src.mooring_limit || 0,
         "max_docking_size": src.max_docking_size || 0,
         "capacity": src.capacity || 0
     }
@@ -103,11 +103,11 @@ var self = module.exports = {
             throw new Error("failed to pass a transaction: transfer")
 
         db.assertTx()
-       
-        if ((src_slice !== null && typeof src_slice !== 'string' ) ||
+
+        if ((src_slice !== null && typeof src_slice !== 'string') ||
             (dest_slice !== null && typeof dest_slice !== 'string')) {
             // Lots of callers to this pass in unvalidate values for slices
-            throw new Error("invalid params for transfer: src_slice="+src_slice+" dest_slice="+dest_slice)
+            throw new Error("invalid params for transfer: src_slice=" + src_slice + " dest_slice=" + dest_slice)
         } else if (!Array.isArray(items)) {
             throw new Error("invalid params for transfer: items must be an array")
         }
@@ -116,46 +116,46 @@ var self = module.exports = {
             src_doc.usage = src_doc.usage - (item.blueprint.size * item.quantity)
 
             if (isNaN(src_doc.usage))
-                throw new Error("this item broke the inventory transfer"+JSON.stringify(item))
+                throw new Error("this item broke the inventory transfer" + JSON.stringify(item))
         }
 
         if (src_container !== null) {
             var src_doc = src_container.doc
 
             if (items.some(function(item) {
-                if (item.item !== undefined) {
-                    // Don't worry about testing if it's a vessel, it won't
-                    // be in the list if it isn't
-                    var i = src_doc.mooring.indexOf(item.item.id)
+                    if (item.item !== undefined) {
+                        // Don't worry about testing if it's a vessel, it won't
+                        // be in the list if it isn't
+                        var i = src_doc.mooring.indexOf(item.item.id)
 
-                    if (i > -1) {
-                        src_doc.mooring.splice(i, 1)
+                        if (i > -1) {
+                            src_doc.mooring.splice(i, 1)
+                        } else {
+                            item.quantity = 1
+                            default_usage_remove_calc(item)
+                        }
+
+                        return (item.item.container_id !== src_container.id || item.item.container_slice !== src_slice || item.item.locked === true)
                     } else {
-                        item.quantity = 1
+                        C.assertUUID(item.blueprint.uuid)
                         default_usage_remove_calc(item)
+
+                        var slice = src_doc.contents[src_slice]
+                        if (slice === undefined)
+                            slice = src_doc.contents[src_slice] = {}
+
+                        if (typeof slice[item.blueprint.uuid] !== 'number')
+                            slice[item.blueprint.uuid] = 0
+
+                        slice[item.blueprint.uuid] = slice[item.blueprint.uuid] - item.quantity
+                        var not_enough_bool = (isNaN(src_doc.contents[src_slice][item.blueprint.uuid]) || src_doc.contents[src_slice][item.blueprint.uuid] < 0)
+
+                        if (src_doc.contents[src_slice][item.blueprint.uuid] === 0)
+                            delete src_doc.contents[src_slice][item.blueprint.uuid]
+
+                        return not_enough_bool
                     }
-
-                    return (item.item.container_id !== src_container.id || item.item.container_slice !== src_slice || item.item.locked === true)
-                } else {
-                    C.assertUUID(item.blueprint.uuid)
-                    default_usage_remove_calc(item)
-
-                    var slice = src_doc.contents[src_slice]
-                    if (slice === undefined)
-                        slice = src_doc.contents[src_slice] = {}
-
-                    if (typeof slice[item.blueprint.uuid] !== 'number')
-                        slice[item.blueprint.uuid] = 0
-
-                    slice[item.blueprint.uuid] = slice[item.blueprint.uuid] - item.quantity
-                    var not_enough_bool = (isNaN(src_doc.contents[src_slice][item.blueprint.uuid]) || src_doc.contents[src_slice][item.blueprint.uuid] < 0)
-
-                    if (src_doc.contents[src_slice][item.blueprint.uuid] === 0)
-                        delete src_doc.contents[src_slice][item.blueprint.uuid]
-
-                    return not_enough_bool
-                }
-            })) {
+                })) {
                 throw new C.http.Error(409, "invalid_transaction", {
                     reason: "Not enough contents present",
                     desired: items,
@@ -173,7 +173,7 @@ var self = module.exports = {
             dest_doc.usage = dest_doc.usage + (item.blueprint.size * item.quantity)
 
             if (isNaN(dest_doc.usage))
-                throw new Error("this item broke the inventory transfer"+JSON.stringify(item))
+                throw new Error("this item broke the inventory transfer" + JSON.stringify(item))
         }
 
         // dest_container and dest_slice may be null when spodb is deploying a vessel
@@ -207,8 +207,8 @@ var self = module.exports = {
             })
 
             if (isNaN(dest_doc.usage) ||
-                        dest_doc.usage > dest_doc.limits.capacity ||
-                        dest_doc.mooring.length > dest_doc.limits.moored) {
+                dest_doc.usage > dest_doc.limits.capacity ||
+                dest_doc.mooring.length > dest_doc.limits.moored) {
                 throw new C.http.Error(409, "not_enough_space", {
                     inventory: dest_container.id,
                     capacity: dest_doc.limits,
@@ -233,8 +233,7 @@ var self = module.exports = {
             return items.reduce(function(prev, item) {
                 if (item.item !== undefined) {
                     prev = prev.then(function() {
-                        return db.none("update items set container_id = $2, container_slice = $3 where id = $1",
-                                       [ item.item.id, container_id, dest_slice ])
+                        return db.none("update items set container_id = $2, container_slice = $3 where id = $1", [item.item.id, container_id, dest_slice])
                     })
                 }
 
@@ -269,42 +268,42 @@ var self = module.exports = {
 
         // This is how spodb docks and updates vessel status
         app.post('/vessels/:uuid', function(req, res) {
-            Q.spread([blueprints.getData(), C.http.authorize_req(req, true) ],
-            function(blueprints, auth) {
-                return db.tx(req.ctx, function(db) {
-                    return Q.spread([
-                        db.one("select * from items where id = $1 and account = $2 for update", [ req.param('uuid'), req.body.account ]),
-                        db.one("select * from inventories where id = $1 and account = $2 for update", [ req.body.inventory, req.body.account ])
-                    ], function(vessel, container) {
-                        req.ctx.debug('inv', 'vessel', vessel)
-                        req.ctx.debug('inv', 'container', container)
-                        req.ctx.debug('inv', 'request', req.body)
+            Q.spread([blueprints.getData(), C.http.authorize_req(req, true)],
+                function(blueprints, auth) {
+                    return db.tx(req.ctx, function(db) {
+                        return Q.spread([
+                            db.one("select * from items where id = $1 and account = $2 for update", [req.param('uuid'), req.body.account]),
+                            db.one("select * from inventories where id = $1 and account = $2 for update", [req.body.inventory, req.body.account])
+                        ], function(vessel, container) {
+                            req.ctx.debug('inv', 'vessel', vessel)
+                            req.ctx.debug('inv', 'container', container)
+                            req.ctx.debug('inv', 'request', req.body)
 
-                        if (!containerAuthorized(req.ctx, container, req.body.account)) {
-                            throw new C.http.Error(403, "not_authorized", {
-                                account: req.body.account,
-                                container: container
-                            })
-                        }
+                            if (!containerAuthorized(req.ctx, container, req.body.account)) {
+                                throw new C.http.Error(403, "not_authorized", {
+                                    account: req.body.account,
+                                    container: container
+                                })
+                            }
 
-                        var vessel_bp = blueprints[vessel.doc.blueprint]
-                        if (vessel_bp.capacity > vessel_bp.size)
-                            throw new C.http.Error(422, "invalid_transaction", {
-                                msg: "You can't scoop something that holds more than it's size"
-                            })
+                            var vessel_bp = blueprints[vessel.doc.blueprint]
+                            if (vessel_bp.capacity > vessel_bp.size)
+                                throw new C.http.Error(422, "invalid_transaction", {
+                                    msg: "You can't scoop something that holds more than it's size"
+                                })
 
-                        // The inventory transfer will fail this if need be because we are
-                        // in a transaction
-                        return Q.all([
-                            db.none("update items set doc = $2 where id = $1", [ vessel.id, C.deepMerge(req.body.stats || {}, vessel.doc) ]),
-                            self.transfer(null, null, container, req.body.slice, [{
-                                item: vessel,
-                                blueprint: vessel_bp
-                            }], db)
-                        ])
+                            // The inventory transfer will fail this if need be because we are
+                            // in a transaction
+                            return Q.all([
+                                db.none("update items set doc = $2 where id = $1", [vessel.id, C.deepMerge(req.body.stats || {}, vessel.doc)]),
+                                self.transfer(null, null, container, req.body.slice, [{
+                                    item: vessel,
+                                    blueprint: vessel_bp
+                                }], db)
+                            ])
+                        })
                     })
-                })
-            }).then(function() {
+                }).then(function() {
                 res.sendStatus(204)
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
@@ -316,7 +315,9 @@ var self = module.exports = {
             Q.spread([
                 C.http.authorize_req(req, true),
                 blueprints.getData(),
-                FS.read(path.resolve(__filename, "../../data/starter_loadout.json")).then(function (content) { return JSON.parse(content) })
+                FS.read(path.resolve(__filename, "../../data/starter_loadout.json")).then(function(content) {
+                    return JSON.parse(content)
+                })
             ], function(auth, blueprints, loadout) {
                 var blueprint = C.find(blueprints, loadout.blueprint_query)
 
@@ -328,19 +329,18 @@ var self = module.exports = {
                                 msg: "This account already has assets"
                             })
                     }).then(function() {
-                        return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)",
-                                       [ data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid) ])
+                        return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)", [data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid)])
                     }).then(function() {
                         return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
                     }).then(function() {
                         return dao.getForUpdateOrFail(data.uuid, db).
                         then(function(dest_container) {
                             return self.transfer(null, null, dest_container, 'default',
-                                 loadout.contents.map(function(obj) {
+                                loadout.contents.map(function(obj) {
                                     console.log(blueprint)
                                     return {
-                                         blueprint: C.find(blueprints, obj.query),
-                                         quantity: obj.quantity
+                                        blueprint: C.find(blueprints, obj.query),
+                                        quantity: obj.quantity
                                     }
                                 }), db)
                         })
@@ -352,18 +352,19 @@ var self = module.exports = {
                 })
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
-         
+
 
         // this is how spodb undocks vessels
         app.post('/vessels', function(req, res) {
-            var data = req.body /* = {
-                uuid: 'uuid', // uuid may already exist, but will never be null nor undefined
-                account: 'uuid',
-                blueprint: 'uuid',
-                from: { container_id, slice },
-                modules: [],
-                contents: []
-            } */
+            var data = req.body
+                /* = {
+                                uuid: 'uuid', // uuid may already exist, but will never be null nor undefined
+                                account: 'uuid',
+                                blueprint: 'uuid',
+                                from: { container_id, slice },
+                                modules: [],
+                                contents: []
+                            } */
             req.ctx.debug('inv', data)
 
             C.http.authorize_req(req, true).then(function(auth) {
@@ -397,15 +398,16 @@ var self = module.exports = {
                                         blueprint: blueprint,
                                         quantity: 1
                                     }], db).then(function() {
-                                        return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)",
-                                                       [ data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid) ])
+                                        return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)", [data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid)])
                                     }).then(function() {
                                         return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
                                     }).then(function() {
                                         if (data.modules !== undefined && data.modules.length > 0) {
                                             return dao.getForUpdateOrFail(data.uuid, db).
                                             then(function(dest_container) {
-                                                return self.setModules(dest_container, data.modules.map(function(uuid) { return blueprints[uuid] }), db)
+                                                return self.setModules(dest_container, data.modules.map(function(uuid) {
+                                                    return blueprints[uuid]
+                                                }), db)
                                             })
                                         }
                                     })
@@ -458,7 +460,7 @@ var self = module.exports = {
 
             Q.spread([blueprints.getData(), C.http.authorize_req(req), dao.get(inventoryID)], function(blueprints, auth, container_row) {
                 var inventory = container_row.doc,
-                    blueprint  = blueprints[blueprintID]
+                    blueprint = blueprints[blueprintID]
 
                 if (!containerAuthorized(req.ctx, inventory, auth.account)) {
                     throw new C.http.Error(403, "unauthorized", {
@@ -505,7 +507,7 @@ var self = module.exports = {
                         }).then(function() {
                             return Q.spread([
                                 // This is in a transaction so it won't be visible until we close the transaction
-                                db.one("insert into items (id, account, container_id, container_slice, doc) values (uuid_generate_v1(), $1, null, null, $2) returning *", [ container_row.account, doc ]),
+                                db.one("insert into items (id, account, container_id, container_slice, doc) values (uuid_generate_v1(), $1, null, null, $2) returning *", [container_row.account, doc]),
                                 dao.getForUpdateOrFail(inventoryID, db)
                             ], function(item, container) {
                                 return self.transfer(null, null, container, sliceID, [{
@@ -534,87 +536,84 @@ var self = module.exports = {
                 from_slice: 'default',
                 to_id: 'uuid',
                 to_slice: 'default',
-                items: [
-                    {
-                        blueprint: 'uuid',
-                        quantity: 3
-                    },
-                    {
-                        item_uuid: 'uuid'
-                    }
-                ]
+                items: [{
+                    blueprint: 'uuid',
+                    quantity: 3
+                }, {
+                    item_uuid: 'uuid'
+                }]
             }
 
             var dataset = req.body
 
-            Q.spread([ blueprints.getData(), C.http.authorize_req(req) ], function(blueprints, auth) {
-            return db.tx(req.ctx, function(db) {
-            return Q.spread([
-                dao.getForUpdate(dataset.from_id, db),
-                dao.getForUpdate(dataset.to_id, db),
-                db.oneOrNone("select * from items where id = $1", dataset.from_id),
-                db.oneOrNone("select * from items where id = $1", dataset.to_id),
-            ], function(src_container, dest_container, src_vessel, dest_vessel) {
-                req.ctx.debug('inv', 'processing transfer for', auth)
+            Q.spread([blueprints.getData(), C.http.authorize_req(req)], function(blueprints, auth) {
+                return db.tx(req.ctx, function(db) {
+                    return Q.spread([
+                        dao.getForUpdate(dataset.from_id, db),
+                        dao.getForUpdate(dataset.to_id, db),
+                        db.oneOrNone("select * from items where id = $1", dataset.from_id),
+                        db.oneOrNone("select * from items where id = $1", dataset.to_id),
+                    ], function(src_container, dest_container, src_vessel, dest_vessel) {
+                        req.ctx.debug('inv', 'processing transfer for', auth)
 
-                if (auth.privileged !== true) {
-                    if (src_container === null || !containerAuthorized(req.ctx, src_container, auth.account)) {
-                        throw new C.http.Error(403, "unauthorized", {
-                            container: dataset.from_id,
-                            account: auth.account
-                        })
-                    } else if (dest_container === null || !containerAuthorized(req.ctx, dest_container, auth.account)) {
-                        throw new C.http.Error(403, "unauthorized", {
-                            container: dataset.to_id,
-                            account: auth.account
-                        })
-                    } else if(
-                        // The vessel doesn't need to be in any particular slice, just
-                        // in the structure generally. Either one can be inside the other
-                        // for this to work
-                        (src_vessel === null || src_vessel.container_id !== dest_container.id) &&
-                        (dest_vessel === null || dest_vessel.container_id !== src_container.id)
-                    ) {
-                        throw new C.http.Error(422, "invalid_transaction", {
-                            msg: "you can only transfer between a vessel and the structure it is docked at",
-                            src_vessel: src_vessel,
-                            dest_vessel: dest_vessel,
-                            src_container: src_container,
-                            dest_container: dest_container,
-                        })
-                    }
-                }
-
-                return Q.all(dataset.items.map(function(t) {
-                    if (t.item_uuid !== undefined) {
-                        return db.one("select * from items where id = $1 for update", t.item_uuid).
-                        then(function(item) {
-                            t.blueprint = blueprints[item.doc.blueprint]
-                            t.item = item
-                        })
-                    } else {
-                        if (t.blueprint !== undefined)
-                            t.blueprint = blueprints[t.blueprint]
-
-                        if (t.blueprint === undefined) {
-                            throw new C.http.Error(422, "no_such_reference", {
-                                name: "blueprint",
-                                blueprint: t.blueprint
-                            })
-                        } else if (t.blueprint.size === undefined) {
-                            throw new C.http.Error(500, "invalid_blueprint", {
-                                reason: "missing the size attribute",
-                                blueprint: t.blueprint
-                            })
+                        if (auth.privileged !== true) {
+                            if (src_container === null || !containerAuthorized(req.ctx, src_container, auth.account)) {
+                                throw new C.http.Error(403, "unauthorized", {
+                                    container: dataset.from_id,
+                                    account: auth.account
+                                })
+                            } else if (dest_container === null || !containerAuthorized(req.ctx, dest_container, auth.account)) {
+                                throw new C.http.Error(403, "unauthorized", {
+                                    container: dataset.to_id,
+                                    account: auth.account
+                                })
+                            } else if (
+                                // The vessel doesn't need to be in any particular slice, just
+                                // in the structure generally. Either one can be inside the other
+                                // for this to work
+                                (src_vessel === null || src_vessel.container_id !== dest_container.id) &&
+                                (dest_vessel === null || dest_vessel.container_id !== src_container.id)
+                            ) {
+                                throw new C.http.Error(422, "invalid_transaction", {
+                                    msg: "you can only transfer between a vessel and the structure it is docked at",
+                                    src_vessel: src_vessel,
+                                    dest_vessel: dest_vessel,
+                                    src_container: src_container,
+                                    dest_container: dest_container,
+                                })
+                            }
                         }
-                    }
-                })).then(function() {
-                    return self.transfer(src_container, dataset.from_slice, dest_container, dataset.to_slice, dataset.items, db)
-                }).then(function() {
-                    res.sendStatus(204)
+
+                        return Q.all(dataset.items.map(function(t) {
+                            if (t.item_uuid !== undefined) {
+                                return db.one("select * from items where id = $1 for update", t.item_uuid).
+                                then(function(item) {
+                                    t.blueprint = blueprints[item.doc.blueprint]
+                                    t.item = item
+                                })
+                            } else {
+                                if (t.blueprint !== undefined)
+                                    t.blueprint = blueprints[t.blueprint]
+
+                                if (t.blueprint === undefined) {
+                                    throw new C.http.Error(422, "no_such_reference", {
+                                        name: "blueprint",
+                                        blueprint: t.blueprint
+                                    })
+                                } else if (t.blueprint.size === undefined) {
+                                    throw new C.http.Error(500, "invalid_blueprint", {
+                                        reason: "missing the size attribute",
+                                        blueprint: t.blueprint
+                                    })
+                                }
+                            }
+                        })).then(function() {
+                            return self.transfer(src_container, dataset.from_slice, dest_container, dataset.to_slice, dataset.items, db)
+                        }).then(function() {
+                            res.sendStatus(204)
+                        })
+                    })
                 })
-            })
-            })
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
     }

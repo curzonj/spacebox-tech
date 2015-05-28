@@ -11,11 +11,11 @@ var dao = require('./dao.js'),
     blueprints = require('./blueprints.js'),
     inventory = require('./inventory.js')
 
-function produce( uuid, slice, items, db) {
+function produce(uuid, slice, items, db) {
     return updateInventory('produce', uuid, slice, items, db)
 }
 
-function consume( uuid, slice, items, db) {
+function consume(uuid, slice, items, db) {
     return updateInventory('consume', uuid, slice, items, db)
 }
 
@@ -27,17 +27,17 @@ function updateInventory(action, uuid, slice, items, db) {
         var args
 
         if (!Array.isArray(items))
-            items = [ items ]
+            items = [items]
 
-        switch(action) {
+        switch (action) {
             case 'produce':
-                args = [ null, null, container, slice ]
+                args = [null, null, container, slice]
                 break;
             case 'consume':
-                args = [ container, slice, null, null ]
+                args = [container, slice, null, null]
                 break;
             default:
-                throw new Error("invalid inventory action: "+action)
+                throw new Error("invalid inventory action: " + action)
         }
 
         args.push(items.map(function(item) {
@@ -73,7 +73,7 @@ function fullfillResources(ctx, data, db) {
 
         ctx.log('build', "running " + job.uuid + " at " + job.facility)
 
-        switch(job.action) {
+        switch (job.action) {
             case 'refining':
                 return consume(job.inventory_id, job.slice, [{
                     blueprint: job.blueprint,
@@ -89,9 +89,8 @@ function fullfillResources(ctx, data, db) {
                 if (job.inventory_id != job.target) {
                     next = next.then(function() {
                         return db.
-                        // This also ensures that the the target is in the container
-                        one("update items set locked = true where id = $1 and container_id = $2 and container_slice = $3 returning id",
-                            [ job.target, job.inventory_id, job.slice ])
+                            // This also ensures that the the target is in the container
+                        one("update items set locked = true where id = $1 and container_id = $2 and container_slice = $3 returning id", [job.target, job.inventory_id, job.slice])
                     })
                 }
 
@@ -129,7 +128,7 @@ function fullfillResources(ctx, data, db) {
             default:
                 ctx.debug('build', blueprint)
 
-                return consume(job.inventory_id, job.slice, 
+                return consume(job.inventory_id, job.slice,
                     Object.keys(blueprint.build.resources).map(function(key) {
                         return {
                             blueprint: key,
@@ -142,7 +141,7 @@ function fullfillResources(ctx, data, db) {
         job.finishAt = finishAt.unix()
         return dao.jobs.completeStatus(data.id, "resourcesFullfilled", job, finishAt, db).
         then(function() {
-            return db.none("update facilities set current_job_id = $2, trigger_at = $3, next_backoff = '1 second' where id = $1", [ job.facility, data.id, finishAt.toDate()])
+            return db.none("update facilities set current_job_id = $2, trigger_at = $3, next_backoff = '1 second' where id = $1", [job.facility, data.id, finishAt.toDate()])
         })
     }).then(function() {
         ctx.log('build', "fullfilled " + job.uuid + " at " + job.facility)
@@ -182,7 +181,9 @@ function deliverJob(ctx, job, db) {
                     blueprints.getData()
                 ])
             }).spread(function(container, blueprints) {
-                return inventory.setModules(container, job.modules.map(function(uuid) { return blueprints[uuid] }))
+                return inventory.setModules(container, job.modules.map(function(uuid) {
+                    return blueprints[uuid]
+                }))
             }).then(function() {
                 if (job.inventory_id != job.target) {
                     return db.one("update items set locked = false where id = $1 returning id", job.target)
@@ -190,8 +191,9 @@ function deliverJob(ctx, job, db) {
             })
         case "construction":
             return next.tap(function(_) {
-                return C.request('3dsim', 'POST', 204, '/spodb/'+job.inventory_id, {
-                    blueprint: job.blueprint })
+                return C.request('3dsim', 'POST', 204, '/spodb/' + job.inventory_id, {
+                    blueprint: job.blueprint
+                })
             }).then(function(container) {
                 var left_overs = container.doc.modules.slice()
                 if (left_overs.length > 0) {
@@ -236,7 +238,7 @@ function jobDeliveryHandling(ctx, data, db) {
 
     var timestamp = moment.unix(job.finishAt)
     if (timestamp.isAfter(moment())) {
-        ctx.log('build', 'received job '+data.id+' at '+facility+' early: '+moment.unix(job.finishAt).fromNow());
+        ctx.log('build', 'received job ' + data.id + ' at ' + facility + ' early: ' + moment.unix(job.finishAt).fromNow());
         return
     }
 
@@ -267,18 +269,18 @@ function checkAndProcessFacilityJob(ctx, facility_id) {
             return dao.jobs.nextJob(facility_id, db)
         }).then(function(data) {
             if (data === null) {
-                ctx.debug('build', "no matching jobs in "+facility_id)
+                ctx.debug('build', "no matching jobs in " + facility_id)
                 return db.none("update facilities set trigger_at = null where id = $1", facility_id)
             } else {
                 job = data
                 ctx.debug('build', 'job', data)
 
                 if (moment(job.trigger_at).isAfter(moment())) {
-                    return db.none("update facilities set trigger_at = $2 where id = $1", [ facility_id, job.trigger_at ])
+                    return db.none("update facilities set trigger_at = $2 where id = $1", [facility_id, job.trigger_at])
                 }
             }
 
-            switch(data.status) {
+            switch (data.status) {
                 case "queued":
                     return fullfillResources(ctx, job, db)
                 case "resourcesFullfilled":
@@ -310,15 +312,18 @@ function checkAndDeliverResources(ctx, uuid) {
             var blueprint = blueprints[facility.blueprint]
 
             ctx.debug('build', 'resource processing', facility, blueprint)
-            
+
             if (facility.doc.resources_checked_at === undefined) {
                 facility.doc.resources_checked_at = moment()
-                // The first time around this is just a dummy
-                return db.query("update facilities set trigger_at = $2, doc = $3 where id = $1", [ uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc ])
+                    // The first time around this is just a dummy
+                return db.query("update facilities set trigger_at = $2, doc = $3 where id = $1", [uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc])
             } else if (
                 moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').isBefore(moment())
             ) {
-                return produce(facility.inventory_id, 'default', [{ blueprint: blueprint.generated_resource, quantity: blueprint.generating_quantity}], db).
+                return produce(facility.inventory_id, 'default', [{
+                    blueprint: blueprint.generated_resource,
+                    quantity: blueprint.generating_quantity
+                }], db).
                 then(function() {
                     pubsub.publish(ctx, {
                         type: 'resources',
@@ -330,7 +335,7 @@ function checkAndDeliverResources(ctx, uuid) {
                     })
 
                     facility.doc.resources_checked_at = moment()
-                    return db.query("update facilities set trigger_at = $2, next_backoff = '1 second', doc = $3 where id = $1", [ uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc ])
+                    return db.query("update facilities set trigger_at = $2, next_backoff = '1 second', doc = $3 where id = $1", [uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc])
                 }).fail(function(e) {
                     pubsub.publish(ctx, {
                         type: 'resources',
@@ -344,13 +349,13 @@ function checkAndDeliverResources(ctx, uuid) {
                     throw e
                 })
             } else {
-                ctx.log('build', uuid+" is waiting for "+moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').diff(moment()))
+                ctx.log('build', uuid + " is waiting for " + moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').diff(moment()))
 
                 return Q(null)
             }
         })
     }).fail(function(e) {
-        ctx.log('build', "failed to deliver resources from "+uuid+": "+e.toString())
+        ctx.log('build', "failed to deliver resources from " + uuid + ": " + e.toString())
         ctx.log('build', e.stack)
 
         return dao.facilities.incrementBackoff(uuid)
@@ -397,7 +402,7 @@ setInterval(function() {
     return function() {
         return ctx.log_with(function(ctx) {
             build_worker_fn(ctx)
-        }, "ts="+moment().unix(), 'build')
+        }, "ts=" + moment().unix(), 'build')
     }
 }(), 1000)
 
@@ -409,19 +414,19 @@ var self = module.exports = {
         app.get('/jobs/:uuid', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
                 return dao.jobs.get(req.param('uuid'), auth.account).
-                    then(function(data) {
-                        res.send(data)
-                    })
+                then(function(data) {
+                    res.send(data)
+                })
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
         app.get('/jobs', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
                 return dao.jobs.
-                    all(auth.privileged && req.param('all') == 'true' ? undefined : auth.account).
-                    then(function(data) {
-                        res.send(data)
-                    })
+                all(auth.privileged && req.param('all') == 'true' ? undefined : auth.account).
+                then(function(data) {
+                    res.send(data)
+                })
             })
         })
 
@@ -469,7 +474,7 @@ var self = module.exports = {
 
                 var next = Q(null)
 
-                switch(job.action) {
+                switch (job.action) {
                     case 'refining':
                         if (blueprint.refine === undefined)
                             throw new C.http.Error(422, "invalid_job", {
@@ -492,7 +497,7 @@ var self = module.exports = {
                             return inventory.dao.get(job.target)
                         }).then(function(row) {
                             // TODO validate that the target can handle the new modules
-                            
+
                             if (row.doc.blueprint !== job.blueprint)
                                 throw new C.http.Error(422, "blueprint_mismatch", {
                                     target: row,
@@ -559,7 +564,7 @@ var self = module.exports = {
                 return db.tx(req.ctx, function(db) {
                     return self.updateFacilities(uuid, db).
                     then(function() {
-                        return db.many("select * from facilities where account = $1 and inventory_id = $2", [ auth.account, uuid ])
+                        return db.many("select * from facilities where account = $1 and inventory_id = $2", [auth.account, uuid])
                     })
                 })
             }).then(function(list) {
@@ -588,7 +593,7 @@ var self = module.exports = {
         app.delete('/facilities/:uuid', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
                 return db.tx(function(db) {
-                    return db.one("select * from facilities where id=$1 and account = $2 and disabled = 't' for update", [ req.param('uuid'), auth.account ]).
+                    return db.one("select * from facilities where id=$1 and account = $2 and disabled = 't' for update", [req.param('uuid'), auth.account]).
                     then(function(facility) {
                         return self.destroyFacility(facility, db)
                     })
