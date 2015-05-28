@@ -137,6 +137,7 @@ var self = module.exports = {
 
                     return (item.item.container_id !== src_container.id || item.item.container_slice !== src_slice || item.item.locked === true)
                 } else {
+                    C.assertUUID(item.blueprint.uuid)
                     default_usage_remove_calc(item)
 
                     var slice = src_doc.contents[src_slice]
@@ -190,6 +191,8 @@ var self = module.exports = {
                         default_usage_add_calc(item)
                     }
                 } else {
+                    C.assertUUID(item.blueprint.uuid)
+
                     var slice = dest_doc.contents[dest_slice]
                     if (slice === undefined)
                         slice = dest_doc.contents[dest_slice] = {}
@@ -307,14 +310,14 @@ var self = module.exports = {
         })
 
 
-        app.post('/vessels/starter', function(req, res) {
+        app.post('/getting_started', function(req, res) {
             var data = req.body
 
-            Q.all([
+            Q.spread([
                 C.http.authorize_req(req, true),
                 blueprints.getData(),
                 FS.read(path.resolve(__filename, "../../data/starter_loadout.json")).then(function (content) { return JSON.parse(content) })
-            ]).then(function(auth, blueprints, loadout) {
+            ], function(auth, blueprints, loadout) {
                 var blueprint = C.find(blueprints, loadout.blueprint_query)
 
                 return db.tx(req.ctx, function(db) {
@@ -324,22 +327,23 @@ var self = module.exports = {
                             throw new C.http.Error(403, "invalid_request", {
                                 msg: "This account already has assets"
                             })
-                    })
-                }).then(function() {
-                    return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)",
-                                   [ data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid) ])
-                }).then(function() {
-                    return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
-                }).then(function() {
-                    return dao.getForUpdateOrFail(data.uuid, db).
-                    then(function(dest_container) {
-                        return self.transfer(null, null, dest_container, 'default',
-                             loadout.contents.map(function(obj) {
-                                 return {
-                                     blueprint: C.find(blueprints, obj.query),
-                                     quantity: obj.quantity
-                                 }
-                             }), db)
+                    }).then(function() {
+                        return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)",
+                                       [ data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid) ])
+                    }).then(function() {
+                        return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
+                    }).then(function() {
+                        return dao.getForUpdateOrFail(data.uuid, db).
+                        then(function(dest_container) {
+                            return self.transfer(null, null, dest_container, 'default',
+                                 loadout.contents.map(function(obj) {
+                                    console.log(blueprint)
+                                    return {
+                                         blueprint: C.find(blueprints, obj.query),
+                                         quantity: obj.quantity
+                                    }
+                                }), db)
+                        })
                     })
                 }).then(function(data) {
                     res.send({

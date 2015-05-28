@@ -22,7 +22,9 @@ return Q.all([
                 key,
                 'raw_material',
                 {},
-                content[key]
+                C.deepMerge({
+                    uuid: key
+                }, content[key])
             ])
         }))
     }),

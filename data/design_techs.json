@@ -71,7 +71,8 @@
     "name": "Extraction",
     "type": "facility",
     "attributes": {
-      "facility_type": "generating"
+      "facility_type": "generating",
+      "generated_resource": "de726be0-3c6d-11e4-801e-d5aa4697630f"
     },
     "parameters": {
       "generating_period": {

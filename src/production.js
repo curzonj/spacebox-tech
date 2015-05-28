@@ -308,47 +308,43 @@ function checkAndDeliverResources(ctx, uuid) {
             db.one("select * from facilities where id = $1 for update", uuid)
         ], function(blueprints, facility) {
             var blueprint = blueprints[facility.blueprint]
-            var resource = blueprint.production.generate
-
-            if (resource === undefined)
-                throw new Error(facility.id+" has no resources, but tried to produce them")
 
             ctx.debug('build', 'resource processing', facility, blueprint)
             
             if (facility.doc.resources_checked_at === undefined) {
                 facility.doc.resources_checked_at = moment()
                 // The first time around this is just a dummy
-                return db.query("update facilities set trigger_at = $2, doc = $3 where id = $1", [ uuid, moment().add(resource.period, 's').toDate(), facility.doc ])
+                return db.query("update facilities set trigger_at = $2, doc = $3 where id = $1", [ uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc ])
             } else if (
-                moment(facility.doc.resources_checked_at).add(resource.period, 's').isBefore(moment())
+                moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').isBefore(moment())
             ) {
-                return produce(facility.inventory_id, 'default', [{ blueprint: resource.type, quantity: resource.quantity}], db).
+                return produce(facility.inventory_id, 'default', [{ blueprint: blueprint.generated_resource, quantity: blueprint.generating_quantity}], db).
                 then(function() {
                     pubsub.publish(ctx, {
                         type: 'resources',
                         account: facility.account,
                         facility: uuid,
-                        blueprint: resource.type,
-                        quantity: resource.quantity,
+                        blueprint: blueprint.generated_resource,
+                        quantity: blueprint.generating_quantity,
                         state: 'delivered'
                     })
 
                     facility.doc.resources_checked_at = moment()
-                    return db.query("update facilities set trigger_at = $2, next_backoff = '1 second', doc = $3 where id = $1", [ uuid, moment().add(resource.period, 's').toDate(), facility.doc ])
+                    return db.query("update facilities set trigger_at = $2, next_backoff = '1 second', doc = $3 where id = $1", [ uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc ])
                 }).fail(function(e) {
                     pubsub.publish(ctx, {
                         type: 'resources',
                         account: facility.account,
                         facility: uuid,
-                        blueprint: resource.type,
-                        quantity: resource.quantity,
+                        blueprint: blueprint.generated_resource,
+                        quantity: blueprint.generating_quantity,
                         state: 'delivery_failed'
                     })
 
                     throw e
                 })
             } else {
-                ctx.log('build', uuid+" is waiting for "+moment(facility.doc.resources_checked_at).add(resource.period, 's').diff(moment()))
+                ctx.log('build', uuid+" is waiting for "+moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').diff(moment()))
 
                 return Q(null)
             }
