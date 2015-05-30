@@ -76,9 +76,11 @@ var self = module.exports = {
         return dao.update(container.id, container.doc, dbC)
     },
     setModules: function(container, list, db) {
-        var modules, blueprints
+        db.assertTx()
 
-        blueprints.forEach(function(b) {
+        var modules = [], blueprints = {}
+
+        list.forEach(function(b) {
             modules.push(b.uuid)
             blueprints[b.uuid] = b
         })
@@ -183,8 +185,12 @@ var self = module.exports = {
             items.forEach(function(item) {
                 if (item.item !== undefined) {
                     console.log("trying to dock", item.blueprint, dest_doc.limits)
-                    if (item.blueprint.type == 'vessel' &&
-                        item.blueprint.size > dest_doc.limits.max_docking_size) {
+                    // TODO how do we scoop something that is larger than it's
+                    // capacity?
+                    if (item.blueprint.type == 'vessel' && (
+                        item.blueprint.size > dest_doc.limits.max_docking_size ||
+                        item.blueprint.size < item.blueprint.capacity
+                    )) {
                         dest_doc.mooring.push(item.item.id)
                     } else {
                         item.quantity = 1
@@ -248,17 +254,17 @@ var self = module.exports = {
                 var uuid = req.param('uuid')
 
                 return db.tx(req.ctx, function(db) {
-                    return dao.getForUpdateOrFail(uuid, db).then(function(container) {
-                        return Q.all([
-                            db.any("select * from facilities where inventory_id = $1 for update ", uuid).
-                            then(function(list) {
-                                return Q.all(list.map(function(facility) {
-                                    return production.destroyFacility(facility, db)
-                                }))
-                            }),
-                            dao.destroy(uuid),
-                            db.none("delete from items where id = $1", uuid)
-                        ])
+                    return dao.getForUpdateOrFail(uuid, db).
+                    then(function(container) {
+                        return db.any("select * from facilities where inventory_id = $1", uuid)
+                    }).then(function(list) {
+                        return Q.all(list.map(function(facility) {
+                            return production.destroyFacility(facility, db)
+                        }))
+                    }).then(function() {
+                        return dao.destroy(uuid, db)
+                    }).then(function() {
+                        return db.none("delete from items where id = $1", uuid)
                     }).then(function() {
                         res.sendStatus(204)
                     })
@@ -287,10 +293,6 @@ var self = module.exports = {
                             }
 
                             var vessel_bp = blueprints[vessel.doc.blueprint]
-                            if (vessel_bp.capacity > vessel_bp.size)
-                                throw new C.http.Error(422, "invalid_transaction", {
-                                    msg: "You can't scoop something that holds more than it's size"
-                                })
 
                             // The inventory transfer will fail this if need be because we are
                             // in a transaction

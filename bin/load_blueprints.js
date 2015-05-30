@@ -53,6 +53,7 @@ return Q.all([
                 uuid: uuid,
                 name: d.name,
                 type: bp_type,
+                tech: d.tech,
                 tech_type: tech.type,
                 tech_level: 1,
             }

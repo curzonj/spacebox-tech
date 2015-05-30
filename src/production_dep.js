@@ -35,7 +35,7 @@ var self = module.exports = {
                 return
 
             var new_facility_modules = container.doc.modules.slice().
-            concat(container_bp.native_modules || []).
+            concat(container_bp.uuid, container_bp.native_modules || []).
             filter(function(v) {
                     return (blueprints[v].facility_type !== undefined)
                 }),

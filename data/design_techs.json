@@ -91,7 +91,7 @@
     "functions": {
       "generating_quantity": {
         "parameters": [ "generating_period", "generating_multiple" ],
-        "components": [ [ 10, 1, 1 ] ]
+        "components": [ [ 100, 1, 1 ] ]
       },
       "size": {
         "parameters": [ "generating_period", "generating_multiple" ],
@@ -187,6 +187,7 @@
     "name": "Structure",
     "type": "vessel",
     "attributes": {
+      "facility_type": "construction",
       "mooring_limit": 1
     },
     "parameters": {
