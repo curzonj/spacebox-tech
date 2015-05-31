@@ -1,4 +1,12 @@
 {
-  "short_jobs": true
-
+  "short_jobs": true,
+  "starter_loadout": {
+    "blueprint_query": { "name": "Industrial Seed Ship" },
+    "contents": [
+      {
+        "query": { "name": "Metal" },
+        "quantity": 1000
+      }
+    ]
+  }
 }

@@ -1,8 +1,8 @@
 'use strict';
 
 var path = require('path'),
-    FS = require("q-io/fs")
+    fs = require("fs")
 
 module.exports = {
-    game: FS.read(path.resolve(__filename, "../../configs/"+process.env.GAME_ENV+".json"))
+    game: JSON.parse(fs.readFileSync(path.resolve(__filename, "../../configs/" + process.env.GAME_ENV + ".json")))
 }

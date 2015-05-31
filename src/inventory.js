@@ -7,7 +7,8 @@ var uuidGen = require('node-uuid'),
     Q = require('q'),
     C = require('spacebox-common')
 
-var blueprints = require('./blueprints.js'),
+var config = require('./config.js'),
+    design_api = require('./blueprints.js'),
     production = require('./production_dep.js'),
     daoModule = require('./dao.js')
 
@@ -78,7 +79,8 @@ var self = module.exports = {
     setModules: function(container, list, db) {
         db.assertTx()
 
-        var modules = [], blueprints = {}
+        var modules = [],
+            blueprints = {}
 
         list.forEach(function(b) {
             modules.push(b.uuid)
@@ -113,6 +115,8 @@ var self = module.exports = {
         } else if (!Array.isArray(items)) {
             throw new Error("invalid params for transfer: items must be an array")
         }
+
+        db.ctx.debug('inv', 'transfer items', items)
 
         function default_usage_remove_calc(item) {
             src_doc.usage = src_doc.usage - (item.blueprint.size * item.quantity)
@@ -185,12 +189,12 @@ var self = module.exports = {
             items.forEach(function(item) {
                 if (item.item !== undefined) {
                     console.log("trying to dock", item.blueprint, dest_doc.limits)
-                    // TODO how do we scoop something that is larger than it's
-                    // capacity?
+                        // TODO how do we scoop something that is larger than it's
+                        // capacity?
                     if (item.blueprint.type == 'vessel' && (
-                        item.blueprint.size > dest_doc.limits.max_docking_size ||
-                        item.blueprint.size < item.blueprint.capacity
-                    )) {
+                            item.blueprint.size > dest_doc.limits.max_docking_size ||
+                            item.blueprint.size < item.blueprint.capacity
+                        )) {
                         dest_doc.mooring.push(item.item.id)
                     } else {
                         item.quantity = 1
@@ -274,7 +278,7 @@ var self = module.exports = {
 
         // This is how spodb docks and updates vessel status
         app.post('/vessels/:uuid', function(req, res) {
-            Q.spread([blueprints.getData(), C.http.authorize_req(req, true)],
+            Q.spread([design_api.getData(), C.http.authorize_req(req, true)],
                 function(blueprints, auth) {
                     return db.tx(req.ctx, function(db) {
                         return Q.spread([
@@ -316,10 +320,8 @@ var self = module.exports = {
 
             Q.spread([
                 C.http.authorize_req(req, true),
-                blueprints.getData(),
-                FS.read(path.resolve(__filename, "../../data/starter_loadout.json")).then(function(content) {
-                    return JSON.parse(content)
-                })
+                design_api.getData(),
+                config.game.starter_loadout,
             ], function(auth, blueprints, loadout) {
                 var blueprint = C.find(blueprints, loadout.blueprint_query)
 
@@ -349,7 +351,8 @@ var self = module.exports = {
                     })
                 }).then(function(data) {
                     res.send({
-                        blueprint_id: blueprint.uuid
+                        blueprint_id: blueprint.uuid,
+                        modules: blueprint.native_modules || []
                     })
                 })
             }).fail(C.http.errHandler(req, res, console.log)).done()
@@ -371,12 +374,13 @@ var self = module.exports = {
 
             C.http.authorize_req(req, true).then(function(auth) {
                 return db.tracing(req.ctx, function(db) {
-                    return blueprints.getData().then(function(blueprints) {
+                    return design_api.getData().then(function(blueprints) {
                         return db.tx(function(db) {
                             var blueprint = blueprints[data.blueprint]
 
                             return Q.spread([
                                 db.oneOrNone("select * from items where id = $1", data.uuid),
+                                dao.get(data.uuid, db),
                                 Q.fcall(function() {
                                     if (data.from.uuid === null) {
                                         return null
@@ -384,19 +388,24 @@ var self = module.exports = {
                                         return dao.getForUpdateOrFail(data.from.uuid, db)
                                     }
                                 })
-                            ], function(vessel, container) {
+                            ], function(vessel, vessel_container, src_container) {
                                 if (vessel !== null) {
                                     if (vessel.blueprint_id !== data.blueprint)
                                         throw new Error("invalid request")
                                     if (vessel.locked === true)
                                         throw new Error("that ship can't undock right now")
 
-                                    return self.transfer(container, data.from.slice, null, null, [{
+                                    return self.transfer(src_container, data.from.slice, null, null, [{
                                         item: vessel,
                                         blueprint: blueprints[vessel.blueprint_id]
-                                    }], db)
+                                    }], db).then(function() {
+                                        res.send({
+                                            blueprint_id: vessel.blueprint_id,
+                                            modules: vessel_container.doc.modules
+                                        })
+                                    })
                                 } else {
-                                    return self.transfer(container, data.from.slice, null, null, [{
+                                    return self.transfer(src_container, data.from.slice, null, null, [{
                                         blueprint: blueprint,
                                         quantity: 1
                                     }], db).then(function() {
@@ -412,14 +421,17 @@ var self = module.exports = {
                                                 }), db)
                                             })
                                         }
+                                    }).then(function() {
+                                        res.send({
+                                            blueprint_id: blueprint.uuid,
+                                            modules: data.modules
+                                        })
                                     })
                                 }
                             })
                         })
                     })
                 })
-            }).then(function() {
-                res.sendStatus(204)
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
@@ -460,7 +472,7 @@ var self = module.exports = {
                 sliceID = req.param('slice'),
                 blueprintID = req.param('blueprint')
 
-            Q.spread([blueprints.getData(), C.http.authorize_req(req), dao.get(inventoryID)], function(blueprints, auth, container_row) {
+            Q.spread([design_api.getData(), C.http.authorize_req(req), dao.get(inventoryID)], function(blueprints, auth, container_row) {
                 var inventory = container_row.doc,
                     blueprint = blueprints[blueprintID]
 
@@ -509,7 +521,7 @@ var self = module.exports = {
                         }).then(function() {
                             return Q.spread([
                                 // This is in a transaction so it won't be visible until we close the transaction
-                                db.one("insert into items (id, account, container_id, container_slice, doc) values (uuid_generate_v1(), $1, null, null, $2) returning *", [container_row.account, doc]),
+                                db.one("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values (uuid_generate_v1(), $1, $2, null, null, $3) returning *", [container_row.account, blueprint.uuid, doc]),
                                 dao.getForUpdateOrFail(inventoryID, db)
                             ], function(item, container) {
                                 return self.transfer(null, null, container, sliceID, [{
@@ -548,7 +560,7 @@ var self = module.exports = {
 
             var dataset = req.body
 
-            Q.spread([blueprints.getData(), C.http.authorize_req(req)], function(blueprints, auth) {
+            Q.spread([design_api.getData(), C.http.authorize_req(req)], function(blueprints, auth) {
                 return db.tx(req.ctx, function(db) {
                     return Q.spread([
                         dao.getForUpdate(dataset.from_id, db),

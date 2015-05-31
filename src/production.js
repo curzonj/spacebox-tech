@@ -54,7 +54,7 @@ function updateInventory(action, uuid, slice, items, db) {
     })
 }
 
-function consumeBuildResources(quantity, build, container, container_slice, ctx, db)  {
+function consumeBuildResources(quantity, build, container, container_slice, ctx, db) {
     return consume(container.id, container_slice,
         Object.keys(build.resources).map(function(key) {
             return {
@@ -65,21 +65,25 @@ function consumeBuildResources(quantity, build, container, container_slice, ctx,
 }
 
 function prepareRefit(target, modules, container, container_slice, ctx, db) {
-    var list = modules.map(function(m) { return m.uuid })
+    var list = modules.map(function(m) {
+        return m.uuid
+    })
     var changes = C.compute_array_changes(target.doc.modules, list)
 
-        target.doc.modules = changes.removed.reduce(function(acc, uuid) {
-            var i = acc.indexOf(uuid)
-            return acc.splice(i, 1)
-        }, target.doc.modules)
+    target.doc.modules = changes.removed.reduce(function(acc, uuid) {
+        var i = acc.indexOf(uuid)
+        return acc.splice(i, 1)
+    }, target.doc.modules)
 
-        target.doc.usage = changes.removed.reduce(function(acc, uuid, i) {
-            var blueprint = C.find(modules, { uuid: uuid })
-            return (acc - blueprint.size)
-        }, target.doc.usage)
+    target.doc.usage = changes.removed.reduce(function(acc, uuid, i) {
+        var blueprint = C.find(modules, {
+            uuid: uuid
+        })
+        return (acc - blueprint.size)
+    }, target.doc.usage)
 
-        ctx.debug('build', "updated modules", target.doc.modules)
-        ctx.debug('build', "updated inventory", target.doc.contents)
+    ctx.debug('build', "updated modules", target.doc.modules)
+    ctx.debug('build', "updated inventory", target.doc.contents)
 
     return inventory.dao.update(target.id, target.doc, db).
     then(function() {
@@ -128,14 +132,15 @@ function fullfillResources(ctx, data, db) {
             case 'refitting':
                 ctx.debug('build', job)
 
-            // This also ensures that the the target is in the container
-                return db.one("update items set locked = true where id = $1 and container_id = $2 and container_slice = $3 returning id",
-                      [job.target, container.id, job.slice]).
+                // This also ensures that the the target is in the container
+                return db.one("update items set locked = true where id = $1 and container_id = $2 and container_slice = $3 returning id", [job.target, container.id, job.slice]).
                 then(function() {
                     return dao.inventory.getForUpdateOrFail(job.target, db)
                 }).then(function(target) {
                     return prepareRefit(target,
-                        job.modules.map(function(uuid) { return blueprints[uuid] }),
+                        job.modules.map(function(uuid) {
+                            return blueprints[uuid]
+                        }),
                         container, job.slice, ctx, db)
                 })
             case 'construction':
@@ -147,7 +152,9 @@ function fullfillResources(ctx, data, db) {
                 }).then(function() {
                     if (job.modules !== undefined) {
                         return prepareRefit(container,
-                            job.modules.map(function(uuid) { return blueprints[uuid] }),
+                            job.modules.map(function(uuid) {
+                                return blueprints[uuid]
+                            }),
                             container, job.slice, ctx, db)
                     }
                 })
@@ -160,7 +167,7 @@ function fullfillResources(ctx, data, db) {
     }).then(function() {
         var duration = job.duration * job.quantity
 
-        if (config.game.get('short_jobs'))
+        if (config.game.short_jobs === true)
             duration = 1
 
         var finishAt = moment().add(duration, 'seconds')
@@ -488,11 +495,7 @@ var self = module.exports = {
 
                         break;
                     case 'refitting':
-                        if (blueprint.tech !== 'spaceship')
-                            throw new C.http.Error(422, "invalid_job", {
-                                msg: "facility is unable to do that"
-                            })
-
+                        // TODO validate the job
                         job.duration = 30
 
                         break;
