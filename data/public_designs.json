@@ -35,7 +35,8 @@
     "name": "Drone Laser",
     "tech": "laser",
     "parameters": {
-      "damage": 1
+      "range": 100,
+      "damage": 1 
     }
   },
   {
@@ -60,11 +61,6 @@
   {
     "name": "Basic Refinery",
     "tech": "refinery",
-    "parameters": {}
-  },
-  {
-    "name": "Basic Scaffolding",
-    "tech": "construction",
     "parameters": {}
   },
   {

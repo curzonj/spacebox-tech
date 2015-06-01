@@ -99,19 +99,6 @@
       }
     }
   },
-  "construction": {
-    "name": "Construction",
-    "type": "facility",
-    "attributes": {
-      "facility_type": "construction"
-    },
-    "functions": {
-      "size": {
-        "parameters": [ ],
-        "components": [ [ 1 ] ]
-      }
-    }
-  },
   "laser": {
     "name": "Laser",
     "type": "weapon",
@@ -121,12 +108,18 @@
         "max": 20,
         "step_size": [ [ 1, 0 ] ],
         "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
+      },
+      "range": {
+        "min": 100,
+        "max": 200000,
+        "step_size": [ [ 100, 0 ] ],
+        "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
       }
     },
     "functions": {
       "size": {
-        "parameters": [ "damage" ],
-        "components": [ [ 10, 2 ] ]
+        "parameters": [ "damage", "range" ],
+        "components": [ [ 0.1, 1.5, 0.7 ] ]
       }
     }
   },
@@ -134,7 +127,8 @@
     "name": "Spaceship",
     "type": "vessel",
     "attributes": {
-      "mooring_limit": 1
+      "mooring_limit": 1,
+      "model_name": "fighter2"
     },
     "parameters": {
       "max_docking_size": {

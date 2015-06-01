@@ -407,7 +407,7 @@ setInterval(function() {
             build_worker_fn(ctx)
         }, "ts=" + moment().unix(), 'build')
     }
-}(), 1000)
+}(), config.game.job_processing_interval)
 
 var prod_dep = require('./production_dep.js')
 var self = module.exports = {
