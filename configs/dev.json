@@ -1,6 +1,6 @@
 {
   "short_jobs": true,
-  "job_processing_interval": 100000,
+  "job_processing_interval": 1000,
   "starter_loadout": {
     "blueprint_query": { "name": "Industrial Seed Ship" },
     "contents": [
