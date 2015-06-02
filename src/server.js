@@ -6,6 +6,7 @@ var http = require("http"),
     bodyParser = require('body-parser'),
     uuidGen = require('node-uuid'),
     Q = require('q'),
+    config = require('./config.js'),
     C = require('spacebox-common')
 
 require('spacebox-common-native').db_select('tech')
@@ -41,6 +42,10 @@ app.use(bodyParser.json())
 app.use(bodyParser.urlencoded({
     extended: false
 }))
+
+app.get('/game_config', function(req, res) {
+    res.send(config.game)
+})
 
 require('./blueprints.js').router(app)
 require('./inventory.js').router(app)
