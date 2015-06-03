@@ -471,54 +471,44 @@ var self = module.exports = {
             var inventoryID = req.param('inventory'),
                 sliceID = req.param('slice'),
                 blueprintID = req.param('blueprint')
+            // TODO the tracing context should be inejected at the beginning
+            db.tx(req.ctx, function(db) {
+                return Q.spread([design_api.getData(), C.http.authorize_req(req), dao.getForUpdateOrFail(inventoryID, db)], function(blueprints, auth, container_row) {
+                    var inventory = container_row.doc,
+                        blueprint = blueprints[blueprintID]
 
-            Q.spread([design_api.getData(), C.http.authorize_req(req), dao.get(inventoryID)], function(blueprints, auth, container_row) {
-                var inventory = container_row.doc,
-                    blueprint = blueprints[blueprintID]
+                    if (!containerAuthorized(req.ctx, inventory, auth.account)) {
+                        throw new C.http.Error(403, "unauthorized", {
+                            container: container_row.account,
+                            auth: auth,
+                        })
+                    }
 
-                if (!containerAuthorized(req.ctx, inventory, auth.account)) {
-                    throw new C.http.Error(403, "unauthorized", {
-                        container: container_row.account,
-                        auth: auth,
-                    })
-                }
-
-                if (inventory === undefined) {
-                    throw new C.http.Error(422, "no_such_reference", {
-                        name: "inventory",
-                        inventory: inventoryID,
-                        slice: sliceID
-                    })
-                } else if (inventory.contents[sliceID] === undefined) {
-                    throw new C.http.Error(422, "no_such_reference", {
-                        name: "slice",
-                        inventory: inventoryID,
-                        slice: sliceID
-                    })
-                } else if (blueprint === undefined) {
-                    throw new C.http.Error(422, "no_such_reference", {
-                        name: "blueprint",
-                        blueprint: blueprintID
-                    })
-                } else if (blueprint.type !== 'vessel') {
-                    // With time what items can be unique may expand
-                    throw new C.http.Error(422, "invalid_blueprint", {
-                        msg: "you may only unpack vessels",
-                        name: "blueprint",
-                        blueprint: blueprintID
-                    })
-                } else {
-                    var doc = unique_item_doc(blueprintID)
-
-                    // TODO the tracing context should be inejected at the beginning
-                    return db.tx(req.ctx, function(db) {
-                        return dao.getForUpdateOrFail(inventoryID, db).
-                        then(function(container) {
-                            return self.transfer(container, sliceID, null, null, [{
-                                blueprint: blueprint,
-                                quantity: 1
-                            }], db)
-                        }).then(function() {
+                    if (inventory.contents[sliceID] === undefined) {
+                        throw new C.http.Error(422, "no_such_reference", {
+                            name: "slice",
+                            inventory: inventoryID,
+                            slice: sliceID
+                        })
+                    } else if (blueprint === undefined) {
+                        throw new C.http.Error(422, "no_such_reference", {
+                            name: "blueprint",
+                            blueprint: blueprintID
+                        })
+                    } else if (blueprint.type !== 'vessel') {
+                        // With time what items can be unique may expand
+                        throw new C.http.Error(422, "invalid_blueprint", {
+                            msg: "you may only unpack vessels",
+                            name: "blueprint",
+                            blueprint: blueprintID
+                        })
+                    } else {
+                        var doc = unique_item_doc(blueprintID)
+                        return self.transfer(container_row, sliceID, null, null, [{
+                            blueprint: blueprint,
+                            quantity: 1
+                        }], db).
+                        then(function() {
                             return Q.spread([
                                 // This is in a transaction so it won't be visible until we close the transaction
                                 db.one("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values (uuid_generate_v1(), $1, $2, null, null, $3) returning *", [container_row.account, blueprint.uuid, doc]),
@@ -537,8 +527,8 @@ var self = module.exports = {
                                 })
                             })
                         })
-                    })
-                }
+                    }
+                })
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 

@@ -43,8 +43,10 @@ app.use(bodyParser.urlencoded({
     extended: false
 }))
 
-app.get('/game_config', function(req, res) {
-    res.send(config.game)
+app.get('/specs', function(req, res) {
+    res.send({
+        config: config.game
+    })
 })
 
 require('./blueprints.js').router(app)
