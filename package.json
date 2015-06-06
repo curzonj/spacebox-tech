@@ -21,12 +21,19 @@
   },
   "devDependencies": {
     "require-dir": "^0.1.0",
+    "gulp-jscs": "latest",
     "gulp-jsbeautifier": "latest",
+    "gulp-jshint": "latest",
+    "jshint-stylish": "latest",
     "gulp": "^3.8.7"
   },
   "jshintConfig": {
     "node": true,
+    "strict": true,
     "newcap": false,
     "asi": true
+  },
+  "jscsConfig": {
+    "preset": "node-style-guide"
   }
 }

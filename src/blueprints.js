@@ -8,7 +8,9 @@ var uuidGen = require('node-uuid'),
     Q = require('q')
 
 var techs_data = FS.read(path.resolve(__filename, "../../data/design_techs.json")).
-    then(function (content) { return JSON.parse(content) })
+then(function(content) {
+    return JSON.parse(content)
+})
 
 function buildBigList(rows) {
     return rows.reduce(function(acc, row) {
@@ -39,7 +41,7 @@ var self = module.exports = {
                 if (auth.privileged === true) {
                     query = db.one("select * from blueprints where id = $1", uuid)
                 } else {
-                    query = db.one("select * from blueprints where id in (select blueprint_id from blueprint_perms where account_id = $1) or blueprints.is_public = true and id = $2", [ auth.account, uuid ])
+                    query = db.one("select * from blueprints where id in (select blueprint_id from blueprint_perms where account_id = $1) or blueprints.is_public = true and id = $2", [auth.account, uuid])
                 }
 
                 return query.then(function(row) {

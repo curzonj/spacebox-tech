@@ -296,7 +296,7 @@ var self = module.exports = {
 
                         return daoModule.blueprints.get(vessel.doc.blueprint).
                         then(function(bp) {
-                            return [ vessel, bp, container ]
+                            return [vessel, bp, container]
                         })
                     }).spread(function(vessel, vessel_bp, container) {
                         // The inventory transfer will fail this if need be because we are
@@ -467,7 +467,7 @@ var self = module.exports = {
             var inventoryID = req.param('inventory'),
                 sliceID = req.param('slice'),
                 blueprintID = req.param('blueprint')
-            // TODO the tracing context should be inejected at the beginning
+                // TODO the tracing context should be inejected at the beginning
             db.tx(req.ctx, function(db) {
                 return Q.spread([daoModule.blueprints.get(blueprintID), C.http.authorize_req(req), dao.getForUpdateOrFail(inventoryID, db)], function(blueprint, auth, container_row) {
                     var inventory = container_row.doc
@@ -589,7 +589,7 @@ var self = module.exports = {
                                 then(function(item) {
                                     return daoModule.blueprints.get(item.doc.blueprint).
                                     then(function(blueprint) {
-                                        return [ item, blueprint ]
+                                        return [item, blueprint]
                                     })
                                 }).spread(function(item, blueprint) {
                                     t.blueprint = blueprint
@@ -598,9 +598,9 @@ var self = module.exports = {
                             } else {
                                 if (t.blueprint !== undefined)
                                     return daoModule.blueprints.get(t.blueprint).
-                                    then(function(blueprint) {
-                                        t.blueprint = blueprint
-                                    })
+                                then(function(blueprint) {
+                                    t.blueprint = blueprint
+                                })
                             }
                         })).then(function() {
                             return self.transfer(src_container, dataset.from_slice, dest_container, dataset.to_slice, dataset.items, db)

@@ -24,7 +24,8 @@ var req_id = 0
 app.use(function(req, res, next) {
     req_id = req_id + 1
     req.request_id = req_id
-    req.ctx = new C.TracingContext(req_id)
+    req.ctx = new C.TracingContext()
+    req.ctx.prefix.push("req_id=" + req_id)
 
     next()
 });

@@ -7,18 +7,24 @@ module.exports = {
     blueprints: {
         get: function(uuid) {
             return db.one("select doc from blueprints where id = $1", uuid).
-                then(function(row) { return row.doc })
+            then(function(row) {
+                return row.doc
+            })
         },
         getMany: function(list) {
             return db.many("select doc from blueprints where id in ($1^)", db.as.csv(list)).
             then(function(rows) {
-                return rows.map(function(row) { return row.doc })
+                return rows.map(function(row) {
+                    return row.doc
+                })
             })
         },
         all: function() {
             return db.many("select * from blueprints").
             then(function(rows) {
-                return rows.map(function(row) { return row.doc })
+                return rows.map(function(row) {
+                    return row.doc
+                })
             })
         }
     },
@@ -79,8 +85,8 @@ module.exports = {
                 return db.query('select * from facilities where account = $1', [account])
             }
         },
-        needAttention: function() {
-            return db.query("select * from facilities where disabled = 'f' and trigger_at is not null and trigger_at < current_timestamp")
+        needAttention: function(dbC) {
+            return (dbC || db).query("select * from facilities where disabled = 'f' and trigger_at is not null and trigger_at < current_timestamp")
         },
         get: function(uuid) {
             return db.one("select * from facilities where id=$1", uuid)

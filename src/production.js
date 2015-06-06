@@ -9,102 +9,10 @@ var uuidGen = require('node-uuid'),
 var config = require('./config'),
     dao = require('./dao.js'),
     pubsub = require('./pubsub.js'),
-    design_api = require('./blueprints.js'),
-    inventory = require('./inventory.js')
+    inventory = require('./inventory.js'),
+    generating = require('./facilities/generating.js'),
+    jobHandlers = require('./facilities/load_all.js')
 
-function produce(uuid, slice, items, db) {
-    return updateInventory('produce', uuid, slice, items, db)
-}
-
-function consume(uuid, slice, items, db) {
-    return updateInventory('consume', uuid, slice, items, db)
-}
-
-function updateInventory(action, uuid, slice, items, db) {
-    return dao.inventory.getForUpdateOrFail(uuid, db).
-    then(function(container) {
-        var args
-
-        if (!Array.isArray(items))
-            items = [items]
-
-        switch (action) {
-            case 'produce':
-                args = [null, null, container, slice]
-                break;
-            case 'consume':
-                args = [container, slice, null, null]
-                break;
-            default:
-                throw new Error("invalid inventory action: " + action)
-        }
-
-        Q.all(items.map(function(item) {
-            return dao.blueprints.get(item.blueprint).
-            then(function(blueprint) {
-                return {
-                    blueprint: blueprint,
-                    quantity: item.quantity
-                }
-            })
-        })).then(function(list) {
-            args.push(list, db)
-        }).then(function() {
-            return inventory.transfer.apply(inventory, args).tap(function() {
-                db.ctx.debug('build', 'contents after', action, container.doc.contents)
-            })
-        })
-    })
-}
-
-function consumeBuildResources(quantity, build, container, container_slice, ctx, db) {
-    return consume(container.id, container_slice,
-        Object.keys(build.resources).map(function(key) {
-            return {
-                blueprint: key,
-                quantity: quantity * build.resources[key]
-            }
-        }), db)
-}
-
-function prepareRefit(target, modules, container, container_slice, ctx, db) {
-    var list = modules.map(function(m) {
-        return m.uuid
-    })
-    var changes = C.compute_array_changes(target.doc.modules, list)
-
-    target.doc.modules = changes.removed.reduce(function(acc, uuid) {
-        var i = acc.indexOf(uuid)
-        return acc.splice(i, 1)
-    }, target.doc.modules)
-
-    target.doc.usage = changes.removed.reduce(function(acc, uuid, i) {
-        var blueprint = C.find(modules, {
-            uuid: uuid
-        })
-        return (acc - blueprint.size)
-    }, target.doc.usage)
-
-    ctx.debug('build', "updated modules", target.doc.modules)
-    ctx.debug('build', "updated inventory", target.doc.contents)
-
-    return inventory.dao.update(target.id, target.doc, db).
-    then(function() {
-        return produce(container.id, container_slice, changes.removed.map(function(key) {
-            return {
-                blueprint: key,
-                quantity: 1
-            }
-        }), db)
-    }).then(function() {
-        return consume(container.id, container_slice, changes.added.map(function(key) {
-            return {
-                blueprint: key,
-                quantity: 1
-            }
-        }), db)
-    })
-}
 
 function fullfillResources(ctx, data, db) {
     var job = data.doc
@@ -127,45 +35,7 @@ function fullfillResources(ctx, data, db) {
 
         ctx.log('build', "running " + job.uuid + " at " + job.facility)
 
-        switch (job.action) {
-            case 'refining':
-                return consume(job.inventory_id, job.slice, [{
-                    blueprint: job.blueprint,
-                    quantity: job.quantity
-                }], db)
-            case 'refitting':
-                ctx.debug('build', job)
-
-                // This also ensures that the the target is in the container
-                return db.one("update items set locked = true where id = $1 and container_id = $2 and container_slice = $3 returning id", [job.target, container.id, job.slice]).
-                then(function() {
-                    return Q.all([
-                        dao.inventory.getForUpdateOrFail(job.target, db),
-                        dao.blueprints.getMany(job.modules)
-                    ], function(target, list) {
-                        return prepareRefit(target, list, container, job.slice, ctx, db)
-                    })
-                })
-            case 'construction':
-                return db.none("update items set locked = true where id = $1", container.id).
-                then(function() {
-                    if (job.change_blueprint) {
-                        return consumeBuildResources(job.quantity, blueprint.build, container, job.slice, ctx, db)
-                    }
-                }).then(function() {
-                    if (job.modules !== undefined) {
-                        dao.blueprints.getMany(job.modules).
-                        then(function(list) {
-                            return prepareRefit(container, list, container, job.slice, ctx, db)
-                        })
-                    }
-                })
-
-            case 'manufacturing':
-                ctx.debug('build', blueprint)
-
-                return consumeBuildResources(job.quantity, blueprint.build, container, job.slice, ctx, db)
-        }
+        return jobHandlers.fullfillResources(ctx, job, blueprint, container, db)
     }).then(function() {
         var duration = job.duration * job.quantity
 
@@ -183,64 +53,6 @@ function fullfillResources(ctx, data, db) {
     })
 }
 
-function deliverJob(ctx, job, db) {
-    return dao.inventory.getForUpdateOrFail(job.inventory_id, db).
-    then(function(container) {
-        switch (job.action) {
-            case "manufacturing":
-                return produce(job.inventory_id, job.slice, [{
-                    blueprint: job.blueprint,
-                    quantity: job.quantity
-                }], db)
-
-            case "refining":
-                return produce(job.inventory_id, job.slice, Object.keys(job.outputs).map(function(key) {
-                    return {
-                        blueprint: key,
-                        quantity: job.outputs[key] * job.quantity
-                    }
-                }), db)
-            case "refitting":
-                ctx.debug('build', job)
-
-                return dao.inventory.getForUpdateOrFail(job.target, db).
-                then(function(target) {
-                    return Q.all([
-                        target,
-                        dao.blueprints.getMany(job.modules)
-                    ])
-                }).spread(function(target, list) {
-                    return inventory.setModules(target, list, db)
-                }).then(function() {
-                    return db.one("update items set locked = false where id = $1 returning id", job.target)
-                })
-            case "construction":
-                return Q.fcall(function() {
-                    if (job.change_blueprint) {
-                        return Q.all([
-                            dao.blueprints.get(job.blueprint),
-                            C.request('3dsim', 'POST', 204, '/spodb/' + job.inventory_id, {
-                                blueprint: job.blueprint }),
-                        ]).spread(function(blueprint) {
-                            return inventory.updateContainer(ctx, container, blueprint, db)
-                        })
-                    }
-                }).then(function() {
-                    if (job.modules !== undefined) {
-                        return dao.blueprints.getMany(job.modules).
-                        then(function(list) {
-                            return inventory.setModules(container, list, db)
-                        })
-                    }
-                }).then(function() {
-                    return self.updateFacilities(job.inventory_id, db)
-                }).then(function() {
-                    return db.one("update items set locked = false where id = $1 returning id", container.id)
-                })
-        }
-    })
-}
-
 function jobDeliveryHandling(ctx, data, db) {
     var job = data.doc
     var facility = data.facility_id
@@ -251,8 +63,10 @@ function jobDeliveryHandling(ctx, data, db) {
         return
     }
 
-    return deliverJob(ctx, job, db).
-    then(function() {
+    return dao.inventory.getForUpdateOrFail(job.inventory_id, db).
+    then(function(container) {
+        return jobHandlers.deliverJob(ctx, job, container, db)
+    }).then(function() {
         return dao.jobs.completeStatus(data.id, "delivered", job, moment().add(10, 'years'), db)
     }).then(function() {
         return db.none("update facilities set current_job_id = null, next_backoff = '1 second', trigger_at = current_timestamp where id = $1", job.facility)
@@ -269,10 +83,10 @@ function jobDeliveryHandling(ctx, data, db) {
     })
 }
 
-function checkAndProcessFacilityJob(ctx, facility_id) {
+function checkAndProcessFacilityJob(ctx, facility_id, db) {
     var job
 
-    return db.tx(ctx, function(db) {
+    return db.tx(function(db) {
         return db.one("select id from facilities where id = $1 for update", facility_id).
         then(function() {
             return dao.jobs.nextJob(facility_id, db)
@@ -312,66 +126,6 @@ function checkAndProcessFacilityJob(ctx, facility_id) {
     })
 }
 
-function checkAndDeliverResources(ctx, uuid) {
-    return db.tx(ctx, function(db) {
-        return db.one("select * from facilities where id = $1 for update", uuid).
-        then(function(facility) {
-            return dao.blueprints.get(facility.blueprint).
-            then(function(blueprint) {
-                return [ blueprint, facility ]
-            })
-        }).spread(function(blueprint, facility) {
-            ctx.debug('build', 'resource processing', facility, blueprint)
-
-            if (facility.doc.resources_checked_at === undefined) {
-                facility.doc.resources_checked_at = moment()
-                    // The first time around this is just a dummy
-                return db.query("update facilities set trigger_at = $2, doc = $3 where id = $1", [uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc])
-            } else if (
-                moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').isBefore(moment())
-            ) {
-                return produce(facility.inventory_id, 'default', [{
-                    blueprint: blueprint.generated_resource,
-                    quantity: blueprint.generating_quantity
-                }], db).
-                then(function() {
-                    pubsub.publish(ctx, {
-                        type: 'resources',
-                        account: facility.account,
-                        facility: uuid,
-                        blueprint: blueprint.generated_resource,
-                        quantity: blueprint.generating_quantity,
-                        state: 'delivered'
-                    })
-
-                    facility.doc.resources_checked_at = moment()
-                    return db.query("update facilities set trigger_at = $2, next_backoff = '1 second', doc = $3 where id = $1", [uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc])
-                }).fail(function(e) {
-                    pubsub.publish(ctx, {
-                        type: 'resources',
-                        account: facility.account,
-                        facility: uuid,
-                        blueprint: blueprint.generated_resource,
-                        quantity: blueprint.generating_quantity,
-                        state: 'delivery_failed'
-                    })
-
-                    throw e
-                })
-            } else {
-                ctx.log('build', uuid + " is waiting for " + moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').diff(moment()))
-
-                return Q(null)
-            }
-        })
-    }).fail(function(e) {
-        ctx.log('build', "failed to deliver resources from " + uuid + ": " + e.toString())
-        ctx.log('build', e.stack)
-
-        return dao.facilities.incrementBackoff(uuid)
-    })
-}
-
 setInterval(function() {
     var jobRoundInProgress = false,
         ctx = new C.TracingContext()
@@ -385,18 +139,20 @@ setInterval(function() {
         jobRoundInProgress = true;
 
         ctx.log('build', "start processing jobs")
-        return dao.facilities.needAttention().then(function(data) {
+        var dbC = db.tracing(ctx)
+
+        return dao.facilities.needAttention(dbC).then(function(data) {
             // Within a transaction, everything needs to be sequential
             return data.reduce(function(next, facility) {
                 ctx.debug('build', 'facility', facility)
 
                 if (facility.facility_type == 'generating') {
                     return next.then(function() {
-                        return checkAndDeliverResources(ctx, facility.id)
+                        return generating.checkAndDeliverResources(ctx, facility.id, dbC)
                     })
                 } else {
                     return next.then(function() {
-                        return checkAndProcessFacilityJob(ctx, facility.id)
+                        return checkAndProcessFacilityJob(ctx, facility.id, dbC)
                     })
                 }
             }, Q(null))
@@ -411,8 +167,8 @@ setInterval(function() {
 
     return function() {
         return ctx.log_with(function(ctx) {
-            build_worker_fn(ctx)
-        }, "ts=" + moment().unix(), 'build')
+                build_worker_fn(ctx)
+            }, "ts=" + moment().unix()) //, 'build')
     }
 }(), config.game.job_processing_interval)
 
@@ -482,64 +238,11 @@ var self = module.exports = {
                         msg: "facility is unable to do that"
                     })
 
-                switch (job.action) {
-                    case 'refining':
-                        if (blueprint.refine === undefined)
-                            throw new C.http.Error(422, "invalid_job", {
-                                msg: "facility is unable to do that"
-                            })
-
-                        job.outputs = blueprint.refine.outputs
-                        job.duration = blueprint.refine.time
-
-                        break;
-                    case 'refitting':
-                        // TODO validate the job
-                        job.duration = 30
-
-                        break;
-                    case 'manufacturing':
-                        job.duration = blueprint.build.time
-
-                        if (blueprint.build === undefined ||
-                            blueprint.size > facilityType.max_job_size)
-                            throw new C.http.Error(422, "invalid_job", {
-                                msg: "facility is unable to do that"
-                            })
-
-                        break;
-                    case 'construction':
-                        job.quantity = 1
-                        job.duration = 0
-
-                        job.change_blueprint = (blueprint.uuid !== facilityType.uuid)
-
-                        if (job.change_blueprint) {
-                            job.duration = blueprint.build.time
-
-                            if (blueprint.tech !== facilityType.tech ||
-                                blueprint.build === undefined)
-                                throw new C.http.Error(422, "invalid_job", {
-                                    msg: "facility is unable to do that"
-                                })
-                        }
-
-                        if (job.modules !== undefined)
-                            job.duration = job.duration + 30
-
-                        // TODO validate that what ever the final modules
-                        // will be that the structure supports them
-
-                        break;
-                    default:
-                        // This really only catches someone trying to submit a `generating`
-                        // job which wouldn't do anything anyways
-                        throw new C.http.Error(422, "invalid_job", {
-                            msg: "invalid job action"
-                        })
-                }
-
-                return dao.jobs.queue(job).then(function() {
+                return Q.fcall(function() {
+                    return jobHandlers.buildJob(req.ctx, job, blueprint, facilityType)
+                }).then(function() {
+                    return dao.jobs.queue(job)
+                }).then(function() {
                     return db.none("update facilities set next_backoff = '1 second', trigger_at = current_timestamp where id = $1", job.facility)
                 }).then(function() {
                     res.status(201).send({

@@ -39,8 +39,7 @@ var self = module.exports = {
             var these_blueprints = {}
 
             return Q.fcall(function() {
-                return dao.blueprints.getMany(container.doc.modules.slice().
-                concat(container_bp.uuid, container_bp.native_modules || [])).
+                return dao.blueprints.getMany(container.doc.modules.slice().concat(container_bp.uuid, container_bp.native_modules || [])).
                 then(function(list) {
                     return list.filter(function(blueprint) {
                         return (blueprint.facility_type !== undefined)
