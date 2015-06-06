@@ -4,6 +4,24 @@ var db = require('spacebox-common-native').db,
     moment = require('moment')
 
 module.exports = {
+    blueprints: {
+        get: function(uuid) {
+            return db.one("select doc from blueprints where id = $1", uuid).
+                then(function(row) { return row.doc })
+        },
+        getMany: function(list) {
+            return db.many("select doc from blueprints where id in ($1^)", db.as.csv(list)).
+            then(function(rows) {
+                return rows.map(function(row) { return row.doc })
+            })
+        },
+        all: function() {
+            return db.many("select * from blueprints").
+            then(function(rows) {
+                return rows.map(function(row) { return row.doc })
+            })
+        }
+    },
     inventory: {
         all: function(account) {
             if (account === undefined) {

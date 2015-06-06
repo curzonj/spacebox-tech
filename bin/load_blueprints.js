@@ -18,7 +18,7 @@ return Q.all([
         return JSON.parse(content)
     }).then(function(content) {
         return Q.all(Object.keys(content).map(function(key) {
-            return db.one("insert into blueprints (id, tech, parameters, doc) values ($1, $2, $3, $4) returning id", [
+            return db.one("insert into blueprints (id, tech, parameters, doc, is_public) values ($1, $2, $3, $4, true) returning id", [
                 key,
                 'raw_material',
                 {},
@@ -91,7 +91,7 @@ return Q.all([
              */
             designs.push(doc)
 
-            return db.one("insert into blueprints (id, tech, parameters, doc) values ($1, $2, $3, $4) returning id", [
+            return db.one("insert into blueprints (id, tech, parameters, doc, is_public) values ($1, $2, $3, $4, true) returning id", [
                 uuid,
                 d.tech,
                 d.parameters,

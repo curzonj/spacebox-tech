@@ -55,9 +55,18 @@ CREATE TABLE items (
 CREATE TABLE blueprints (
     id uuid PRIMARY KEY,
     tech varchar(255) not null,
+    is_public boolean not null default false,
     parameters json not null,
     doc json not null
 );
 
 alter table facilities add foreign key (blueprint) references blueprints (id);
 alter table items add foreign key (blueprint_id) references blueprints (id);
+
+CREATE TABLE blueprint_perms (
+    blueprint_id uuid not null references blueprints (id) ON DELETE CASCADE,
+    account_id uuid not null,
+    can_research boolean not null default false,
+    can_manufacture boolean not null default false,
+    PRIMARY KEY (blueprint_id, account_id)
+);
