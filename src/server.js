@@ -31,7 +31,7 @@ app.use(function(req, res, next) {
 });
 
 morgan.token('request_id', function(req, res) {
-    return req.ctx.id
+    return req.request_id
 })
 
 app.use(morgan('req_id=:request_id :method :url', {
