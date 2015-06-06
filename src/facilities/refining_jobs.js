@@ -16,8 +16,6 @@ module.exports = {
 
         job.outputs = blueprint.refine.outputs
         job.duration = blueprint.refine.time
-
-
     },
     fullfillResources: function(ctx, job, blueprint, container, db) {
         return helpers.consume(job.inventory_id, job.slice, [{

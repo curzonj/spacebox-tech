@@ -5,6 +5,9 @@ var db = require('spacebox-common-native').db,
 
 module.exports = {
     blueprints: {
+        getFull: function(uuid) {
+            return db.one("select * from blueprints where id = $1", uuid)
+        },
         get: function(uuid) {
             return db.one("select doc from blueprints where id = $1", uuid).
             then(function(row) {

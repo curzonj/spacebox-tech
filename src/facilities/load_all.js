@@ -1,6 +1,6 @@
 'use strict';
 
-var jobTypes = ['construction', 'manufacturing', 'refining', 'refitting']
+var jobTypes = ['construction', 'manufacturing', 'refining', 'refitting', 'research']
 
 var handlers = jobTypes.reduce(function(acc, type) {
     acc[type] = require('./' + type + '_jobs.js')
