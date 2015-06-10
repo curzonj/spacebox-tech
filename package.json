@@ -16,6 +16,10 @@
     "q-io": "~1.12.0",
     "postgrator": "latest",
     "moment": "latest",
+    "hiredis": "latest",
+    "redis": "latest",
+    "promise-redis": "latest",
+    "three": "latest",
     "spacebox-common": "curzonj/spacebox-nodejs-common",
     "spacebox-common-native": "curzonj/spacebox-nodejs-common-native"
   },

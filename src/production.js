@@ -138,7 +138,7 @@ setInterval(function() {
 
         jobRoundInProgress = true;
 
-        ctx.log('build', "start processing jobs")
+        //ctx.log('build', "start processing jobs")
         var dbC = db.tracing(ctx)
 
         return dao.facilities.needAttention(dbC).then(function(data) {
@@ -157,7 +157,7 @@ setInterval(function() {
                 }
             }, Q(null))
         }).then(function() {
-            ctx.log('build', 'done processing jobs')
+            //ctx.log('build', 'done processing jobs')
         }).fin(function() {
             jobRoundInProgress = false
         }).fail(function(e) {

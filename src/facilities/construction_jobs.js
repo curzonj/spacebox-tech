@@ -5,6 +5,7 @@ var Q = require('q'),
     production = require('../production_dep.js'),
     inventory = require('../inventory'),
     dao = require('../dao'),
+    worldState = require('../redisWorldState'),
     helpers = require('./helpers')
 
 module.exports = {
@@ -49,13 +50,20 @@ module.exports = {
     deliverJob: function(ctx, job, container, db) {
         return Q.fcall(function() {
             if (job.change_blueprint) {
-                return Q.all([
-                    dao.blueprints.get(job.blueprint),
-                    C.request('3dsim', 'POST', 204, '/spodb/' + job.inventory_id, {
-                        blueprint: job.blueprint
-                    }),
-                ]).spread(function(blueprint) {
-                    return inventory.updateContainer(ctx, container, blueprint, db)
+                return dao.blueprints.get(job.blueprint).
+                then(function(blueprint) {
+                    var new_obj = JSON.parse(JSON.stringify(blueprint))
+                    new_obj.blueprint = blueprint.uuid
+                    delete new_obj.uuid
+
+                    // TODO what happens to a structure's health when it's
+                    // upgraded?
+                    // TODO what about changes to structure modules?
+
+                    return Q.all([
+                        worldState.queueChangeIn(job.inventory_id, new_obj),
+                        inventory.updateContainer(ctx, container, blueprint, db)
+                    ])
                 })
             }
         }).then(function() {

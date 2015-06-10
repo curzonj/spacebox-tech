@@ -9,9 +9,12 @@ module.exports = {
             return db.one("select * from blueprints where id = $1", uuid)
         },
         get: function(uuid) {
-            return db.one("select doc from blueprints where id = $1", uuid).
-            then(function(row) {
-                return row.doc
+            return db.prepared({ name: "get_blueprint", text: "select doc from blueprints where id = $1", values: [ uuid ] }).
+            then(function(result) {
+                if (result.rowCount === 0)
+                    return null
+
+                return result.rows[0].doc
             })
         },
         getMany: function(list) {
@@ -29,6 +32,9 @@ module.exports = {
                     return row.doc
                 })
             })
+        },
+        grantPermission: function(blueprint_id, account_id, can_manufacture, can_research) {
+            return db.none("insert into blueprint_perms (blueprint_id, account_id, can_manufacture, can_research) values ($1, $2, $3, $4)", [ blueprint_id, account_id, can_manufacture, can_research ])
         }
     },
     inventory: {

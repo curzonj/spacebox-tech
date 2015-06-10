@@ -1,6 +1,6 @@
 'use strict';
 
-require('spacebox-common-native').db_select('tech')
+require('spacebox-common-native').db_select('api')
 
 var uuidGen = require('node-uuid'),
     path = require('path'),
@@ -48,7 +48,7 @@ return Q.all([
                     })
                 }
 
-                return design_api.buildNewBlueprint(d, d.parameters, list)
+                return design_api.buildNewBlueprint(d, d.parameters, true, list)
             }).then(function(doc) {
                 designs.push(doc)
             })

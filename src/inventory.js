@@ -58,6 +58,102 @@ function buildContainerIfNeeded(ctx, uuid, account, blueprint, dbC) {
 
 var self = module.exports = {
     dao: dao,
+    dockVessel: function(ctx, uuid, data) {
+        return db.tx(ctx, function(db) {
+            return Q.spread([
+                db.one("select * from items where id = $1 and account = $2 for update", [uuid, data.account]),
+                db.one("select * from inventories where id = $1 and account = $2 for update", [data.inventory, data.account])
+            ], function(vessel, container) {
+                ctx.debug('inv', 'vessel', vessel)
+                ctx.debug('inv', 'container', container)
+                ctx.debug('inv', 'request', data)
+
+                if (!containerAuthorized(ctx, container, data.account)) {
+                    throw new C.http.Error(403, "not_authorized", {
+                        account: data.account,
+                        container: container
+                    })
+                }
+
+                return daoModule.blueprints.get(vessel.doc.blueprint).
+                then(function(bp) {
+                    return [vessel, bp, container]
+                })
+            }).spread(function(vessel, vessel_bp, container) {
+                // The inventory transfer will fail this if need be because we are
+                // in a transaction
+                return Q.all([
+                    db.none("update items set doc = $2 where id = $1", [vessel.id, C.deepMerge(data.stats || {}, vessel.doc)]),
+                    self.transfer(null, null, container, data.slice, [{
+                        item: vessel,
+                        blueprint: vessel_bp
+                    }], db)
+                ])
+            })
+        })
+    },
+    spawnVessel: function(ctx, data) {
+        return db.tx(ctx, function(db) {
+            return Q.spread([
+                db.oneOrNone("select * from items where id = $1", data.uuid),
+                dao.get(data.uuid, db),
+                daoModule.blueprints.get(data.blueprint),
+                Q.fcall(function() {
+                    if (data.from.uuid === null) {
+                        return null
+                    } else {
+                        return dao.getForUpdateOrFail(data.from.uuid, db)
+                    }
+                })
+            ], function(vessel, vessel_container, blueprint, src_container) {
+                if (vessel !== null) {
+                    if (vessel.blueprint_id !== blueprint.uuid)
+                        throw new Error("invalid request")
+                    if (vessel.locked === true)
+                        throw new Error("that ship can't undock right now")
+
+                    return Q.fcall(function() {
+                        if (src_container !== null)
+                            return self.transfer(src_container, data.from.slice, null, null, [{
+                                item: vessel,
+                                blueprint: blueprint,
+                            }], db)
+                    }).then(function() {
+                        return {
+                            blueprint_id: vessel.blueprint_id,
+                            modules: vessel_container.doc.modules
+                        }
+                    })
+                } else {
+                    return Q.fcall(function() {
+                        if (src_container !== null)
+                            return self.transfer(src_container, data.from.slice, null, null, [{
+                                blueprint: blueprint,
+                                quantity: 1
+                            }], db)
+                    }).then(function() {
+                        return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)", [data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid)])
+                    }).then(function() {
+                        return buildContainerIfNeeded(ctx, data.uuid, data.account, blueprint, db)
+                    }).then(function() {
+                        if (data.modules !== undefined && data.modules.length > 0) {
+                            return Q.spread([
+                                dao.getForUpdateOrFail(data.uuid, db),
+                                daoModule.blueprints.getMany(data.modules)
+                            ], function(dest_container, list) {
+                                return self.setModules(dest_container, list, db)
+                            })
+                        }
+                    }).then(function() {
+                        return {
+                            blueprint_id: blueprint.uuid,
+                            modules: data.modules
+                        }
+                    })
+                }
+            })
+        })
+    },
     updateContainer: function(ctx, container, newBlueprint, dbC) {
         var i = container.doc,
             b = newBlueprint
@@ -250,72 +346,6 @@ var self = module.exports = {
         })
     },
     router: function(app) {
-        // NOTE /vessels endpoints are restricted to spodb
-        app.delete('/vessels/:uuid', function(req, res) {
-            C.http.authorize_req(req, true).then(function(auth) {
-                var uuid = req.param('uuid')
-
-                return db.tx(req.ctx, function(db) {
-                    return dao.getForUpdateOrFail(uuid, db).
-                    then(function(container) {
-                        return db.any("select * from facilities where inventory_id = $1", uuid)
-                    }).then(function(list) {
-                        return Q.all(list.map(function(facility) {
-                            return production.destroyFacility(facility, db)
-                        }))
-                    }).then(function() {
-                        return dao.destroy(uuid, db)
-                    }).then(function() {
-                        return db.none("delete from items where id = $1", uuid)
-                    }).then(function() {
-                        res.sendStatus(204)
-                    })
-                })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
-        })
-
-        // This is how spodb docks and updates vessel status
-        app.post('/vessels/:uuid', function(req, res) {
-            C.http.authorize_req(req, true).
-            then(function(blueprints, auth) {
-                return db.tx(req.ctx, function(db) {
-                    return Q.spread([
-                        db.one("select * from items where id = $1 and account = $2 for update", [req.param('uuid'), req.body.account]),
-                        db.one("select * from inventories where id = $1 and account = $2 for update", [req.body.inventory, req.body.account])
-                    ], function(vessel, container) {
-                        req.ctx.debug('inv', 'vessel', vessel)
-                        req.ctx.debug('inv', 'container', container)
-                        req.ctx.debug('inv', 'request', req.body)
-
-                        if (!containerAuthorized(req.ctx, container, req.body.account)) {
-                            throw new C.http.Error(403, "not_authorized", {
-                                account: req.body.account,
-                                container: container
-                            })
-                        }
-
-                        return daoModule.blueprints.get(vessel.doc.blueprint).
-                        then(function(bp) {
-                            return [vessel, bp, container]
-                        })
-                    }).spread(function(vessel, vessel_bp, container) {
-                        // The inventory transfer will fail this if need be because we are
-                        // in a transaction
-                        return Q.all([
-                            db.none("update items set doc = $2 where id = $1", [vessel.id, C.deepMerge(req.body.stats || {}, vessel.doc)]),
-                            self.transfer(null, null, container, req.body.slice, [{
-                                item: vessel,
-                                blueprint: vessel_bp
-                            }], db)
-                        ])
-                    })
-                })
-            }).then(function() {
-                res.sendStatus(204)
-            }).fail(C.http.errHandler(req, res, console.log)).done()
-        })
-
-
         app.post('/getting_started', function(req, res) {
             var data = req.body
 
@@ -374,60 +404,6 @@ var self = module.exports = {
             req.ctx.debug('inv', data)
 
             C.http.authorize_req(req, true).then(function(auth) {
-                return db.tx(req.ctx, function(db) {
-                    return Q.spread([
-                        db.oneOrNone("select * from items where id = $1", data.uuid),
-                        dao.get(data.uuid, db),
-                        daoModule.blueprints.get(data.blueprint),
-                        Q.fcall(function() {
-                            if (data.from.uuid === null) {
-                                return null
-                            } else {
-                                return dao.getForUpdateOrFail(data.from.uuid, db)
-                            }
-                        })
-                    ], function(vessel, vessel_container, blueprint, src_container) {
-                        if (vessel !== null) {
-                            if (vessel.blueprint_id !== blueprint.uuid)
-                                throw new Error("invalid request")
-                            if (vessel.locked === true)
-                                throw new Error("that ship can't undock right now")
-
-                            return self.transfer(src_container, data.from.slice, null, null, [{
-                                item: vessel,
-                                blueprint: blueprint,
-                            }], db).then(function() {
-                                res.send({
-                                    blueprint_id: vessel.blueprint_id,
-                                    modules: vessel_container.doc.modules
-                                })
-                            })
-                        } else {
-                            return self.transfer(src_container, data.from.slice, null, null, [{
-                                blueprint: blueprint,
-                                quantity: 1
-                            }], db).then(function() {
-                                return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)", [data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid)])
-                            }).then(function() {
-                                return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
-                            }).then(function() {
-                                if (data.modules !== undefined && data.modules.length > 0) {
-                                    return Q.spread([
-                                        dao.getForUpdateOrFail(data.uuid, db),
-                                        daoModule.blueprints.getMany(data.modules)
-                                    ], function(dest_container, list) {
-                                        return self.setModules(dest_container, list, db)
-                                    })
-                                }
-                            }).then(function() {
-                                res.send({
-                                    blueprint_id: blueprint.uuid,
-                                    modules: data.modules
-                                })
-                            })
-                        }
-                    })
-                })
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 

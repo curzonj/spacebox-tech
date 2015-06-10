@@ -5,6 +5,7 @@ var uuidGen = require('node-uuid'),
     fs = require("fs"),
     db = require('spacebox-common-native').db,
     C = require('spacebox-common'),
+    config = require('./config'),
     Q = require('q')
 
 
@@ -17,7 +18,25 @@ function buildBigList(rows) {
 
 var self = module.exports = {
     techs_data: JSON.parse(fs.readFileSync(path.resolve(__filename, "../../data/design_techs.json"))),
-    buildNewBlueprint: function(parent, parameters, native_modules) {
+    determineBuildResources: function(input_params) {
+        var time = Math.floor(C.calc_poly({
+            parameters: config.game.build_time.parameters,
+            components: config.game.build_time.components
+        }, input_params))
+
+        var amount = Math.floor(C.calc_poly({
+            parameters: config.game.build_resources.parameters,
+            components: config.game.build_resources.components
+        }, input_params))
+
+        return {
+            time: time,
+            resources: {
+                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": amount,
+            }
+        }
+    },
+    buildNewBlueprint: function(parent, parameters, is_public, native_modules) {
         var bp_type,
             d = parent,
             uuid = uuidGen.v1(),
@@ -38,8 +57,12 @@ var self = module.exports = {
             type: bp_type,
             tech: d.tech,
             tech_type: tech.type,
-            tech_level: 1,
         }
+
+        var input_params = C.deepMerge(parameters, 
+            C.deepMerge(config.game.global_parameters, {
+                tech_level: 1,
+            }))
 
         C.deepMerge(parameters, doc)
         C.deepMerge(tech.attributes || {}, doc)
@@ -48,27 +71,26 @@ var self = module.exports = {
             var poly = tech.functions[key]
             //console.log(poly)
             //console.log(d)
-            doc[key] = Math.floor(C.calc_poly({
+            var value = Math.floor(C.calc_poly({
                 parameters: poly.parameters,
                 components: poly.components
-            }, parameters))
+            }, input_params))
+
+            doc[key] = value
+            input_params[key] = value
         })
 
-        doc.build = {
-            time: doc.size,
-            resources: {
-                "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6": doc.size
-            }
-        }
+        doc.build = self.determineBuildResources(input_params)
 
         if (native_modules !== undefined)
             doc.native_modules = native_modules
 
-        return db.one("insert into blueprints (id, tech, parameters, doc, is_public) values ($1, $2, $3, $4, true) returning id", [
+        return db.one("insert into blueprints (id, tech, parameters, doc, is_public) values ($1, $2, $3, $4, $5) returning id", [
             uuid,
             d.tech,
             parameters,
-            doc
+            doc,
+            (is_public === true)
         ]).then(function() {
             return doc
         })

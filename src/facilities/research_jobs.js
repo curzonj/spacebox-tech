@@ -40,6 +40,8 @@ module.exports = {
             row.parameters[job.parameter] = row.parameters[job.parameter] + step_size
 
             return design_api.buildNewBlueprint(row.doc, row.parameters)
+        }).then(function(doc) {
+            return dao.blueprints.grantPermission(doc.uuid, job.account, true, true)
         })
     }
 }

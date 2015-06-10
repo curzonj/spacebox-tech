@@ -9,7 +9,7 @@ var http = require("http"),
     config = require('./config.js'),
     C = require('spacebox-common')
 
-require('spacebox-common-native').db_select('tech')
+require('spacebox-common-native').db_select('api')
 Q.longStackSupport = true
 
 C.configure({
@@ -44,11 +44,7 @@ app.use(bodyParser.urlencoded({
     extended: false
 }))
 
-app.get('/specs', function(req, res) {
-    res.send({
-        config: config.game
-    })
-})
+require('./routes.js')(app)
 
 require('./blueprints.js').router(app)
 require('./inventory.js').router(app)
