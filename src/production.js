@@ -127,7 +127,7 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
 
 setInterval(function() {
     var jobRoundInProgress = false,
-        ctx = C.logging.create('api')
+        ctx = C.logging.create()
 
     function build_worker_fn(ctx) {
         if (jobRoundInProgress) {
