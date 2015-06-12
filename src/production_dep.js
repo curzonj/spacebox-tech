@@ -3,7 +3,6 @@
 var Q = require('q'),
     C = require('spacebox-common'),
     db = require('spacebox-common-native').db,
-    dao = require('./dao.js'),
     pubsub = require('./pubsub.js')
 
 // This module exists only to eliminate a circular dependency between prod and inv
@@ -24,11 +23,11 @@ var self = module.exports = {
         db.assertTx()
 
         return Q.spread([
-            dao.inventory.getForUpdateOrFail(uuid, db),
+            db.inventory.getForUpdateOrFail(uuid, db),
             db.any("select * from facilities where inventory_id = $1 for update", uuid)
         ], function(container, current_facilities) {
             return Q.all([
-                dao.blueprints.get(container.doc.blueprint),
+                db.blueprints.get(container.doc.blueprint),
                 container,
                 current_facilities
             ])
@@ -39,7 +38,7 @@ var self = module.exports = {
             var these_blueprints = {}
 
             return Q.fcall(function() {
-                return dao.blueprints.getMany(container.doc.modules.slice().concat(container_bp.uuid, container_bp.native_modules || [])).
+                return db.blueprints.getMany(container.doc.modules.slice().concat(container_bp.uuid, container_bp.native_modules || [])).
                 then(function(list) {
                     return list.filter(function(blueprint) {
                         return (blueprint.facility_type !== undefined)
@@ -55,7 +54,7 @@ var self = module.exports = {
                     }),
                     changes = C.compute_array_changes(current_facility_modules, new_facility_modules)
 
-                db.ctx.log('build', 'updateFacilities', container, current_facilities, changes, these_blueprints)
+                db.ctx.old_debug('build', 'updateFacilities', container, current_facilities, changes, these_blueprints)
                 return changes
             }).tap(function(changes) {
                 return Q.all([

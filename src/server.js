@@ -2,15 +2,14 @@
 
 var http = require("http"),
     express = require("express"),
-    morgan = require('morgan'),
     bodyParser = require('body-parser'),
     uuidGen = require('node-uuid'),
     Q = require('q'),
+    worldState = require('spacebox-common-native/lib/redis-state'),
     config = require('./config.js'),
     C = require('spacebox-common')
 
-require('spacebox-common-native').db_select('api')
-Q.longStackSupport = true
+require('./db_config')
 
 C.configure({
     AUTH_URL: process.env.AUTH_URL,
@@ -20,29 +19,34 @@ C.configure({
 var app = express()
 var port = process.env.PORT || 5000
 
-var req_id = 0
+var bunyanRequest = require('bunyan-request');
+app.use(bunyanRequest({
+  logger: C.logging.buildBunyan('api'),
+  headerName: 'x-request-id'
+}));
+
 app.use(function(req, res, next) {
-    req_id = req_id + 1
-    req.request_id = req_id
-    req.ctx = new C.TracingContext()
-    req.ctx.prefix.push("req_id=" + req_id)
-
+    req.ctx = C.logging.create(req.log)
     next()
-});
-
-morgan.token('request_id', function(req, res) {
-    return req.request_id
 })
 
-app.use(morgan('req_id=:request_id :method :url', {
-    immediate: true
-}))
-
-app.use(morgan('req_id=:request_id :method :url :status :res[content-length] - :response-time ms'))
 app.use(bodyParser.json())
 app.use(bodyParser.urlencoded({
     extended: false
 }))
+
+app.use(function(req, res, next) {
+    if (req.body !== undefined)
+        req.ctx.trace({ body: req.body }, 'http request body')
+
+    res._json = res.json
+    res.json = function(data) {
+        req.ctx.trace({ body: data }, 'http response body')
+        return res._json.apply(res, arguments)
+    }
+
+    next()
+})
 
 require('./routes.js')(app)
 
@@ -50,9 +54,14 @@ require('./blueprints.js').router(app)
 require('./inventory.js').router(app)
 require('./production.js').router(app)
 
-var server = http.createServer(app)
-server.listen(port)
+worldState.loadWorld().then(function() {
+    var server = http.createServer(app)
+    // TODO implement this configurably
+    //server.timeout = 5000
+    server.listen(port)
 
-require('./pubsub.js').setup_websockets(server)
+    require('./pubsub.js').setup_websockets(server)
 
-console.log("server ready")
+    console.log("server ready")
+}).done()
+

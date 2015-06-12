@@ -5,7 +5,6 @@ var Q = require('q'),
     production = require('../production_dep.js'),
     inventory = require('../inventory'),
     design_api = require('../blueprints'),
-    dao = require('../dao'),
     helpers = require('./helpers')
 
 module.exports = {
@@ -27,7 +26,7 @@ module.exports = {
         }], db)
     },
     deliverJob: function(ctx, job, container, db) {
-        return dao.blueprints.getFull(job.blueprint).
+        return db.blueprints.getFull(job.blueprint).
         then(function(row) {
             var blueprint = row.doc,
                 tech = design_api.techs_data[blueprint.tech]
@@ -41,7 +40,7 @@ module.exports = {
 
             return design_api.buildNewBlueprint(row.doc, row.parameters)
         }).then(function(doc) {
-            return dao.blueprints.grantPermission(doc.uuid, job.account, true, true)
+            return db.blueprints.grantPermission(doc.uuid, job.account, true, true)
         })
     }
 }

@@ -8,7 +8,7 @@ var listeners = []
 
 module.exports = {
     publish: function(ctx, message) {
-        ctx.log('pubsub', "publishing to %d listeners", listeners.length, message)
+        ctx.old_debug('pubsub', "publishing to %d listeners", listeners.length, message)
 
         listeners.forEach(function(ws) {
             var account = ws.upgradeReq.authentication.account
@@ -16,7 +16,7 @@ module.exports = {
             if (ws.readyState == WebSockets.OPEN && message.account == account) {
                 ws.send(JSON.stringify(message))
             } else {
-                ctx.log('pubsub', "owner %s !== connection %s", message.account, account)
+                ctx.old_log('pubsub', "owner %s !== connection %s", message.account, account)
             }
         })
     },

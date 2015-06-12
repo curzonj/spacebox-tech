@@ -1,6 +1,6 @@
 'use strict';
 
-require('spacebox-common-native').db_select('api')
+require('../db_config')
 
 var solarsystems = require('../solar_systems.js')
 

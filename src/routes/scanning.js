@@ -3,14 +3,10 @@
 var Q = require('q'),
     THREE = require('three'),
     uuidGen = require('node-uuid'),
-    npm_debug = require('debug'),
-    log = npm_debug('3dsim:info'),
-    error = npm_debug('3dsim:error'),
-    debug = npm_debug('3dsim:debug'),
     db = require('spacebox-common-native').db,
     C = require('spacebox-common')
 
-var worldState = require('../redisWorldState.js'),
+var worldState = require('spacebox-common-native/lib/redis-state'),
     space_data = require('../space_data.js'),
     config = require('../config.js'),
     th = require('spacebox-common/src/three_helpers.js'),
@@ -32,8 +28,8 @@ module.exports = function(app) {
 
             var systemId = ship.solar_system
 
-            return solarsystems.getWormholes(systemId).then(function(data) {
-                debug(data)
+            return solarsystems.getWormholes(systemId, req.ctx).then(function(data) {
+                req.ctx.trace({ wormholes: data }, 'wormholes in the system')
 
                 return Q.all(data.map(function(row) {
                     var spodb_id, destination, direction;
@@ -49,7 +45,7 @@ module.exports = function(app) {
                     }
 
                     if (spodb_id === null) {
-                        return worldState.addObject({
+                        return space_data.addObject({
                             type: 'wormhole',
                             position: space_data.random_position(config.game.wormhole_range),
                             solar_system: systemId,
@@ -99,21 +95,21 @@ module.exports = function(app) {
             if (position1.distanceTo(position2) > config.game.wormhole_jump_range)
                 throw ("You are not within range, " + config.game.wormhole_jump_range)
 
-            debug(wormhole)
+            req.ctx.debug({ wormhole: wormhole }, 'wormhole object for jump')
 
-            return db.query("select * from wormholes where id = $1 and expires_at > current_timestamp", [wormhole.wormhole_id]).
+            return db.query("select * from wormholes where id = $1 and expires_at > current_timestamp", wormhole.wormhole_id).
             then(function(data) {
                 if (data.length === 0)
                     throw ("that wormhole has collapsed")
 
-                debug(data)
+                req.ctx.debug({ wormhole: data }, 'wormhole record')
                 var destination_id, row = data[0],
                     direction = wormhole.direction,
                     before = Q(null)
 
                 if (direction === 'outbound' && row.inbound_id === null) {
                     // this only happens on WHs outbound from this system
-                    before = worldState.addObject({
+                    before = space_data.addObject({
                         type: 'wormhole',
                         position: space_data.random_position(config.game.wormhole_range),
                         solar_system: row.inbound_system,
@@ -122,7 +118,7 @@ module.exports = function(app) {
                         direction: 'inbound',
                         expires_at: row.expires_at
                     }).then(function(spo_id) {
-                        debug([row.id, spo_id])
+                        req.ctx.debug({ row_id: row.id, spo_id: spo_id}, 'created wormhole to jump to')
                         destination_id = spo_id
 
                         return db.query("update wormholes set inbound_id = $2 where id = $1", [row.id, spo_id])

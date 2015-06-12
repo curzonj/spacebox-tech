@@ -1,6 +1,6 @@
 'use strict';
 
-require('spacebox-common-native').db_select('api')
+require('../src/db_config')
 
 var uuidGen = require('node-uuid'),
     path = require('path'),

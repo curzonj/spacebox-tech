@@ -7,7 +7,6 @@ var uuidGen = require('node-uuid'),
     C = require('spacebox-common')
 
 var config = require('./config'),
-    dao = require('./dao.js'),
     pubsub = require('./pubsub.js'),
     inventory = require('./inventory.js'),
     generating = require('./facilities/generating.js'),
@@ -20,9 +19,9 @@ function fullfillResources(ctx, data, db) {
     return Q.all([
         Q.fcall(function() {
             if (job.action !== 'refitting')
-                return dao.blueprints.get(job.blueprint)
+                return db.blueprints.get(job.blueprint)
         }),
-        dao.inventory.getForUpdateOrFail(job.inventory_id, db),
+        db.inventory.getForUpdateOrFail(job.inventory_id, db),
         db.query("select id from facilities where id = $1 for update", job.facility)
     ]).spread(function(blueprint, container) {
         pubsub.publish(ctx, {
@@ -33,7 +32,7 @@ function fullfillResources(ctx, data, db) {
             state: 'started',
         })
 
-        ctx.log('build', "running " + job.uuid + " at " + job.facility)
+        ctx.old_log('build', "running " + job.uuid + " at " + job.facility)
 
         return jobHandlers.fullfillResources(ctx, job, blueprint, container, db)
     }).then(function() {
@@ -44,12 +43,12 @@ function fullfillResources(ctx, data, db) {
 
         var finishAt = moment().add(duration, 'seconds')
         job.finishAt = finishAt.unix()
-        return dao.jobs.completeStatus(data.id, "resourcesFullfilled", job, finishAt, db).
+        return db.jobs.completeStatus(data.id, "resourcesFullfilled", job, finishAt).
         then(function() {
             return db.none("update facilities set current_job_id = $2, trigger_at = $3, next_backoff = '1 second' where id = $1", [job.facility, data.id, finishAt.toDate()])
         })
     }).then(function() {
-        ctx.log('build', "fullfilled " + job.uuid + " at " + job.facility)
+        ctx.old_log('build', "fullfilled " + job.uuid + " at " + job.facility)
     })
 }
 
@@ -59,19 +58,19 @@ function jobDeliveryHandling(ctx, data, db) {
 
     var timestamp = moment.unix(job.finishAt)
     if (timestamp.isAfter(moment())) {
-        ctx.log('build', 'received job ' + data.id + ' at ' + facility + ' early: ' + moment.unix(job.finishAt).fromNow());
+        ctx.old_log('build', 'received job ' + data.id + ' at ' + facility + ' early: ' + moment.unix(job.finishAt).fromNow());
         return
     }
 
-    return dao.inventory.getForUpdateOrFail(job.inventory_id, db).
+    return db.inventory.getForUpdateOrFail(job.inventory_id, db).
     then(function(container) {
         return jobHandlers.deliverJob(ctx, job, container, db)
     }).then(function() {
-        return dao.jobs.completeStatus(data.id, "delivered", job, moment().add(10, 'years'), db)
+        return db.jobs.completeStatus(data.id, "delivered", job, moment().add(10, 'years'))
     }).then(function() {
         return db.none("update facilities set current_job_id = null, next_backoff = '1 second', trigger_at = current_timestamp where id = $1", job.facility)
     }).then(function() {
-        ctx.log('build', "delivered " + job.uuid + " at " + facility)
+        ctx.old_log('build', "delivered " + job.uuid + " at " + facility)
 
         pubsub.publish(ctx, {
             account: job.account,
@@ -89,14 +88,14 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
     return db.tx(function(db) {
         return db.one("select id from facilities where id = $1 for update", facility_id).
         then(function() {
-            return dao.jobs.nextJob(facility_id, db)
+            return db.jobs.nextJob(facility_id)
         }).then(function(data) {
             if (data === null) {
-                ctx.debug('build', "no matching jobs in " + facility_id)
+                ctx.old_debug('build', "no matching jobs in " + facility_id)
                 return db.none("update facilities set trigger_at = null where id = $1", facility_id)
             } else {
                 job = data
-                ctx.debug('build', 'job', data)
+                ctx.old_debug('build', 'job', data)
 
                 if (moment(job.trigger_at).isAfter(moment())) {
                     return db.none("update facilities set trigger_at = $2 where id = $1", [facility_id, job.trigger_at])
@@ -109,12 +108,12 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
                 case "resourcesFullfilled":
                     return jobDeliveryHandling(ctx, job, db)
                 case "delivered":
-                    //return dao.jobs.destroy(data.id)
+                    //return db.jobs.destroy(data.id)
             }
         })
     }).fail(function(e) {
-        ctx.log('build', "failed to handle job in", facility_id, ": " + e.toString())
-        ctx.log('build', e.stack)
+        ctx.old_log('build', "failed to handle job in", facility_id, ": " + e.toString())
+        ctx.old_log('build', e.stack)
 
         if (process.env.PEXIT_ON_JOB_FAIL == '1') {
             console.log("exiting for job debugging per ENV['PEXIT_ON_JOB_FAIL']")
@@ -122,29 +121,29 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
         }
 
         if (job !== undefined && job.id !== undefined)
-            return dao.jobs.incrementBackoff(job.id)
+            return db.jobs.incrementBackoff(job.id)
     })
 }
 
 setInterval(function() {
     var jobRoundInProgress = false,
-        ctx = new C.TracingContext()
+        ctx = C.logging.create('api')
 
     function build_worker_fn(ctx) {
         if (jobRoundInProgress) {
-            ctx.log('build', "job processing not complete, skipping round")
+            ctx.old_log('build', "job processing not complete, skipping round")
             return
         }
 
         jobRoundInProgress = true;
 
-        //ctx.log('build', "start processing jobs")
+        //ctx.old_log('build', "start processing jobs")
         var dbC = db.tracing(ctx)
 
-        return dao.facilities.needAttention(dbC).then(function(data) {
+        return dbC.facilities.needAttention().then(function(data) {
             // Within a transaction, everything needs to be sequential
             return data.reduce(function(next, facility) {
-                ctx.debug('build', 'facility', facility)
+                ctx.old_debug('build', 'facility', facility)
 
                 if (facility.facility_type == 'generating') {
                     return next.then(function() {
@@ -157,7 +156,7 @@ setInterval(function() {
                 }
             }, Q(null))
         }).then(function() {
-            //ctx.log('build', 'done processing jobs')
+            //ctx.old_log('build', 'done processing jobs')
         }).fin(function() {
             jobRoundInProgress = false
         }).fail(function(e) {
@@ -166,7 +165,7 @@ setInterval(function() {
     }
 
     return function() {
-        return ctx.log_with(function(ctx) {
+        return ctx.old_log_with(function(ctx) {
                 build_worker_fn(ctx)
             }, "ts=" + moment().unix()) //, 'build')
     }
@@ -179,19 +178,19 @@ var self = module.exports = {
     router: function(app) {
         app.get('/jobs/:uuid', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
-                return dao.jobs.get(req.param('uuid'), auth.account).
+                return db.jobs.get(req.param('uuid'), auth.account).
                 then(function(data) {
-                    res.send(data)
+                    res.json(data)
                 })
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
         app.get('/jobs', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
-                return dao.jobs.
+                return db.jobs.
                 all(auth.privileged && req.param('all') == 'true' ? undefined : auth.account).
                 then(function(data) {
-                    res.send(data)
+                    res.json(data)
                 })
             })
         })
@@ -205,14 +204,14 @@ var self = module.exports = {
 
         // players queue jobs
         app.post('/jobs', function(req, res) {
-            req.ctx.debug('build', req.body)
+            req.ctx.old_debug('build', req.body)
 
             var job = req.body
             var duration = -1
 
             job.uuid = uuidGen.v1()
 
-            Q.spread([C.http.authorize_req(req), dao.facilities.get(job.facility)], function(auth, facility) {
+            Q.spread([C.http.authorize_req(req), db.facilities.get(job.facility)], function(auth, facility) {
                 // Must wait until we have the auth response to check authorization
                 // TODO come up with a better means of authorization
                 if (facility.account != auth.account)
@@ -225,9 +224,9 @@ var self = module.exports = {
                     facility,
                     Q.fcall(function() {
                         if (job.action !== 'refitting')
-                            return dao.blueprints.get(job.blueprint)
+                            return db.blueprints.get(job.blueprint)
                     }),
-                    dao.blueprints.get(facility.blueprint)
+                    db.blueprints.get(facility.blueprint)
                 ])
             }).spread(function(auth, facility, blueprint, facilityType) {
                 job.account = auth.account
@@ -241,7 +240,7 @@ var self = module.exports = {
                 return Q.fcall(function() {
                     return jobHandlers.buildJob(req.ctx, job, blueprint, facilityType)
                 }).then(function() {
-                    return dao.jobs.queue(job)
+                    return db.jobs.queue(job)
                 }).then(function() {
                     return db.none("update facilities set next_backoff = '1 second', trigger_at = current_timestamp where id = $1", job.facility)
                 }).then(function() {
@@ -265,19 +264,19 @@ var self = module.exports = {
                     })
                 })
             }).then(function(list) {
-                res.send(list)
+                res.json(list)
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
         app.get('/facilities', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
                 if (auth.privileged && req.param('all') == 'true') {
-                    return dao.facilities.all()
+                    return db.facilities.all()
                 } else {
-                    return dao.facilities.all(auth.account)
+                    return db.facilities.all(auth.account)
                 }
             }).then(function(list) {
-                res.send(list)
+                res.json(list)
             }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 

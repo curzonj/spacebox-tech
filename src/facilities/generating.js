@@ -7,7 +7,6 @@ var uuidGen = require('node-uuid'),
     C = require('spacebox-common')
 
 var config = require('../config'),
-    dao = require('../dao'),
     pubsub = require('../pubsub'),
     inventory = require('../inventory'),
     helpers = require('./helpers')
@@ -18,12 +17,12 @@ module.exports = {
         return db.tx(function(db) {
             return db.one("select * from facilities where id = $1 for update", uuid).
             then(function(facility) {
-                return dao.blueprints.get(facility.blueprint).
+                return db.blueprints.get(facility.blueprint).
                 then(function(blueprint) {
                     return [blueprint, facility]
                 })
             }).spread(function(blueprint, facility) {
-                ctx.debug('build', 'resource processing', facility, blueprint)
+                ctx.old_debug('build', 'resource processing', facility, blueprint)
 
                 if (facility.doc.resources_checked_at === undefined) {
                     facility.doc.resources_checked_at = moment()
@@ -61,16 +60,16 @@ module.exports = {
                         throw e
                     })
                 } else {
-                    ctx.log('build', uuid + " is waiting for " + moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').diff(moment()))
+                    ctx.old_log('build', uuid + " is waiting for " + moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').diff(moment()))
 
                     return Q(null)
                 }
             })
         }).fail(function(e) {
-            ctx.log('build', "failed to deliver resources from " + uuid + ": " + e.toString())
-            ctx.log('build', e.stack)
+            ctx.old_log('build', "failed to deliver resources from " + uuid + ": " + e.toString())
+            ctx.old_log('build', e.stack)
 
-            return dao.facilities.incrementBackoff(uuid)
+            return db.facilities.incrementBackoff(uuid)
         })
     }
 

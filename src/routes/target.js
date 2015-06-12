@@ -2,11 +2,11 @@
 
 var Q = require('q'),
     C = require('spacebox-common'),
-    worldState = require('../redisWorldState.js')
+    worldState = require('spacebox-common-native/lib/redis-state')
 
 function validateSubjectTarget(subject, target, auth) {
     if (subject === null || subject.account !== auth.account) {
-        throw new Error("no such subject")
+        throw new Error("no such vessel")
     } else if (target === null) {
         throw new Error("no such target")
     } else if (target.solar_system !== subject.solar_system) {
@@ -39,7 +39,7 @@ module.exports = function(app) {
             setState(ship, 'weapon', 'shoot', {
                 target: msg.target
             }).then(function(data) {
-                res.send({
+                res.json({
                     result: data
                 })
             })
@@ -59,7 +59,7 @@ module.exports = function(app) {
             setState(ship, 'engine', 'moveTo', {
                 moveTo: msg.target
             }).then(function(data) {
-                res.send({
+                res.json({
                     result: data
                 })
             })
@@ -80,7 +80,7 @@ module.exports = function(app) {
                 orbitRadius: msg.radius || 1,
                 orbitTarget: msg.target
             }).then(function(data) {
-                res.send({
+                res.json({
                     result: data
                 })
             })
@@ -99,7 +99,7 @@ module.exports = function(app) {
 
             setState(ship, 'engine', 'fullStop').
             then(function(data) {
-                res.send({
+                res.json({
                     result: data
                 })
             })

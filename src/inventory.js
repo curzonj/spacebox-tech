@@ -8,10 +8,7 @@ var uuidGen = require('node-uuid'),
     C = require('spacebox-common')
 
 var config = require('./config.js'),
-    production = require('./production_dep.js'),
-    daoModule = require('./dao.js')
-
-var dao = daoModule.inventory
+    production = require('./production_dep.js')
 
 function unique_item_doc(blueprint) {
     return {
@@ -22,7 +19,7 @@ function unique_item_doc(blueprint) {
 function containerAuthorized(ctx, container, account) {
     var result = (container !== undefined && container !== null && container.account == account)
     if (!result)
-        ctx.debug('inv', account, 'not granted access to', container)
+        ctx.old_debug('inv', account, 'not granted access to', container)
     return result
 }
 
@@ -34,15 +31,15 @@ function build_limits(src) {
     }
 }
 
-function buildContainerIfNeeded(ctx, uuid, account, blueprint, dbC) {
+function buildContainerIfNeeded(ctx, uuid, account, blueprint, db) {
     var b = blueprint
 
     if (isNaN(b.capacity) || b.capacity <= 0)
         return
 
-    ctx.debug('inv', "building", uuid, "for", account)
+    ctx.old_debug('inv', "building", uuid, "for", account)
 
-    return dao.insert(uuid, {
+    return db.inventory.insert(uuid, {
         uuid: uuid,
         blueprint: b.uuid,
         account: account,
@@ -51,22 +48,21 @@ function buildContainerIfNeeded(ctx, uuid, account, blueprint, dbC) {
         mooring: [],
         modules: [],
         contents: {}
-    }, dbC).then(function() {
-        return production.updateFacilities(uuid, dbC)
+    }).then(function() {
+        return production.updateFacilities(uuid, db)
     })
 }
 
 var self = module.exports = {
-    dao: dao,
     dockVessel: function(ctx, uuid, data) {
         return db.tx(ctx, function(db) {
             return Q.spread([
                 db.one("select * from items where id = $1 and account = $2 for update", [uuid, data.account]),
                 db.one("select * from inventories where id = $1 and account = $2 for update", [data.inventory, data.account])
             ], function(vessel, container) {
-                ctx.debug('inv', 'vessel', vessel)
-                ctx.debug('inv', 'container', container)
-                ctx.debug('inv', 'request', data)
+                ctx.old_debug('inv', 'vessel', vessel)
+                ctx.old_debug('inv', 'container', container)
+                ctx.old_debug('inv', 'request', data)
 
                 if (!containerAuthorized(ctx, container, data.account)) {
                     throw new C.http.Error(403, "not_authorized", {
@@ -75,7 +71,7 @@ var self = module.exports = {
                     })
                 }
 
-                return daoModule.blueprints.get(vessel.doc.blueprint).
+                return db.blueprints.get(vessel.doc.blueprint).
                 then(function(bp) {
                     return [vessel, bp, container]
                 })
@@ -96,13 +92,13 @@ var self = module.exports = {
         return db.tx(ctx, function(db) {
             return Q.spread([
                 db.oneOrNone("select * from items where id = $1", data.uuid),
-                dao.get(data.uuid, db),
-                daoModule.blueprints.get(data.blueprint),
+                db.inventory.get(data.uuid, db),
+                db.blueprints.get(data.blueprint),
                 Q.fcall(function() {
                     if (data.from.uuid === null) {
                         return null
                     } else {
-                        return dao.getForUpdateOrFail(data.from.uuid, db)
+                        return db.inventory.getForUpdateOrFail(data.from.uuid, db)
                     }
                 })
             ], function(vessel, vessel_container, blueprint, src_container) {
@@ -138,8 +134,8 @@ var self = module.exports = {
                     }).then(function() {
                         if (data.modules !== undefined && data.modules.length > 0) {
                             return Q.spread([
-                                dao.getForUpdateOrFail(data.uuid, db),
-                                daoModule.blueprints.getMany(data.modules)
+                                db.inventory.getForUpdateOrFail(data.uuid, db),
+                                db.blueprints.getMany(data.modules)
                             ], function(dest_container, list) {
                                 return self.setModules(dest_container, list, db)
                             })
@@ -154,21 +150,21 @@ var self = module.exports = {
             })
         })
     },
-    updateContainer: function(ctx, container, newBlueprint, dbC) {
+    updateContainer: function(ctx, container, newBlueprint, db) {
         var i = container.doc,
             b = newBlueprint
 
         if (newBlueprint.uuid === undefined)
             throw new Error("invalid params for inventory.updateContainer")
 
-        ctx.debug('inv', i)
+        ctx.old_debug('inv', i)
 
         i.blueprint = newBlueprint.uuid
         i.limits = build_limits(b)
 
-        ctx.debug('inv', i)
+        ctx.old_debug('inv', i)
 
-        return dao.update(container.id, container.doc, dbC)
+        return db.inventory.update(container.id, container.doc)
     },
     setModules: function(container, list, db) {
         db.assertTx()
@@ -188,10 +184,10 @@ var self = module.exports = {
             return (acc + blueprints[uuid].size)
         }, container.doc.usage)
 
-        db.ctx.debug('inv', "updated modules", container.doc.modules)
-        db.ctx.debug('inv', "updated inventory", container.doc.contents)
+        db.ctx.old_debug('inv', "updated modules", container.doc.modules)
+        db.ctx.old_debug('inv', "updated inventory", container.doc.contents)
 
-        return dao.update(container.id, container.doc, db).
+        return db.inventory.update(container.id, container.doc, db).
         then(function() {
             return production.updateFacilities(container.id, db)
         })
@@ -210,7 +206,7 @@ var self = module.exports = {
             throw new Error("invalid params for transfer: items must be an array")
         }
 
-        db.ctx.debug('inv', 'transfer items', items)
+        db.ctx.old_debug('inv', 'transfer items', items)
 
         function default_usage_remove_calc(item) {
             src_doc.usage = src_doc.usage - (item.blueprint.size * item.quantity)
@@ -324,10 +320,10 @@ var self = module.exports = {
 
         return Q.fcall(function() {
             if (dest_container !== null)
-                return dao.update(dest_container.id, dest_container.doc, db)
+                return db.inventory.update(dest_container.id, dest_container.doc, db)
         }).then(function() {
             if (src_container !== null)
-                return dao.update(src_container.id, src_container.doc, db)
+                return db.inventory.update(src_container.id, src_container.doc, db)
         }).then(function() {
             var container_id = null
 
@@ -351,7 +347,7 @@ var self = module.exports = {
 
             Q.spread([
                 C.http.authorize_req(req, true),
-                daoModule.blueprints.all(),
+                db.blueprints.all(),
                 config.game.starter_loadout,
             ], function(auth, blueprints, loadout) {
                 var blueprint = C.find(blueprints, loadout.blueprint_query)
@@ -368,7 +364,7 @@ var self = module.exports = {
                     }).then(function() {
                         return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
                     }).then(function() {
-                        return dao.getForUpdateOrFail(data.uuid, db).
+                        return db.inventory.getForUpdateOrFail(data.uuid, db).
                         then(function(dest_container) {
                             return self.transfer(null, null, dest_container, 'default',
                                 loadout.contents.map(function(obj) {
@@ -381,7 +377,7 @@ var self = module.exports = {
                         })
                     })
                 }).then(function(data) {
-                    res.send({
+                    res.json({
                         blueprint_id: blueprint.uuid,
                         modules: blueprint.native_modules || []
                     })
@@ -401,7 +397,7 @@ var self = module.exports = {
                                 modules: [],
                                 contents: []
                             } */
-            req.ctx.debug('inv', data)
+            req.ctx.old_debug('inv', data)
 
             C.http.authorize_req(req, true).then(function(auth) {
             }).fail(C.http.errHandler(req, res, console.log)).done()
@@ -410,12 +406,12 @@ var self = module.exports = {
         app.get('/inventory', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
                 if (auth.privileged && req.param('all') == 'true') {
-                    return dao.all().then(function(data) {
-                        res.send(data)
+                    return db.inventory.all().then(function(data) {
+                        res.json(data)
                     })
                 } else {
-                    return dao.all(auth.account).then(function(data) {
-                        res.send(data)
+                    return db.inventory.all(auth.account).then(function(data) {
+                        res.json(data)
                     })
                 }
             }).fail(C.http.errHandler(req, res, console.log)).done()
@@ -426,12 +422,12 @@ var self = module.exports = {
 
             Q.spread([
                 C.http.authorize_req(req),
-                dao.get(uuid),
+                db.inventory.get(uuid),
                 db.many("select * from items where container_id = $1", uuid)
             ], function(auth, container, items) {
                 if (containerAuthorized(req.ctx, container, auth.account)) {
                     container.doc.items = items
-                    res.send(container.doc)
+                    res.json(container.doc)
                 } else {
                     res.sendStatus(403)
                 }
@@ -445,7 +441,7 @@ var self = module.exports = {
                 blueprintID = req.param('blueprint')
                 // TODO the tracing context should be inejected at the beginning
             db.tx(req.ctx, function(db) {
-                return Q.spread([daoModule.blueprints.get(blueprintID), C.http.authorize_req(req), dao.getForUpdateOrFail(inventoryID, db)], function(blueprint, auth, container_row) {
+                return Q.spread([db.blueprints.get(blueprintID), C.http.authorize_req(req), db.inventory.getForUpdateOrFail(inventoryID, db)], function(blueprint, auth, container_row) {
                     var inventory = container_row.doc
 
                     if (!containerAuthorized(req.ctx, inventory, auth.account)) {
@@ -483,7 +479,7 @@ var self = module.exports = {
                             return Q.spread([
                                 // This is in a transaction so it won't be visible until we close the transaction
                                 db.one("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values (uuid_generate_v1(), $1, $2, null, null, $3) returning *", [container_row.account, blueprint.uuid, doc]),
-                                dao.getForUpdateOrFail(inventoryID, db)
+                                db.inventory.getForUpdateOrFail(inventoryID, db)
                             ], function(item, container) {
                                 return self.transfer(null, null, container, sliceID, [{
                                     blueprint: blueprint,
@@ -492,7 +488,7 @@ var self = module.exports = {
                                 then(function() {
                                     return buildContainerIfNeeded(req.ctx, item.id, auth.account, blueprint, db)
                                 }).then(function() {
-                                    res.send(C.deepMerge(doc, {
+                                    res.json(C.deepMerge(doc, {
                                         uuid: item.id
                                     }))
                                 })
@@ -505,7 +501,7 @@ var self = module.exports = {
 
         // TODO support a schema validation
         app.post('/inventory', function(req, res) {
-            req.ctx.debug('inv', req.body)
+            req.ctx.old_debug('inv', req.body)
             var example = {
                 from_id: 'uuid',
                 from_slice: 'default',
@@ -524,12 +520,12 @@ var self = module.exports = {
             C.http.authorize_req(req).then(function(auth) {
                 return db.tx(req.ctx, function(db) {
                     return Q.spread([
-                        dao.getForUpdate(dataset.from_id, db),
-                        dao.getForUpdate(dataset.to_id, db),
+                        db.inventory.getForUpdate(dataset.from_id, db),
+                        db.inventory.getForUpdate(dataset.to_id, db),
                         db.oneOrNone("select * from items where id = $1", dataset.from_id),
                         db.oneOrNone("select * from items where id = $1", dataset.to_id),
                     ], function(src_container, dest_container, src_vessel, dest_vessel) {
-                        req.ctx.debug('inv', 'processing transfer for', auth)
+                        req.ctx.old_debug('inv', 'processing transfer for', auth)
 
                         if (auth.privileged !== true) {
                             if (src_container === null || !containerAuthorized(req.ctx, src_container, auth.account)) {
@@ -563,7 +559,7 @@ var self = module.exports = {
                             if (t.item_uuid !== undefined) {
                                 return db.one("select * from items where id = $1 for update", t.item_uuid).
                                 then(function(item) {
-                                    return daoModule.blueprints.get(item.doc.blueprint).
+                                    return db.blueprints.get(item.doc.blueprint).
                                     then(function(blueprint) {
                                         return [item, blueprint]
                                     })
@@ -573,7 +569,7 @@ var self = module.exports = {
                                 })
                             } else {
                                 if (t.blueprint !== undefined)
-                                    return daoModule.blueprints.get(t.blueprint).
+                                    return db.blueprints.get(t.blueprint).
                                 then(function(blueprint) {
                                     t.blueprint = blueprint
                                 })

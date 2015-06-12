@@ -2,16 +2,11 @@
 
 var Q = require('q'),
     uuidGen = require('node-uuid'),
-    npm_debug = require('debug'),
-    log = npm_debug('3dsim:info'),
-    error = npm_debug('3dsim:error'),
-    debug = npm_debug('3dsim:debug'),
     db = require('spacebox-common-native').db,
     C = require('spacebox-common')
 
-var worldState = require('../redisWorldState.js'),
+var worldState = require('spacebox-common-native/lib/redis-state'),
     solarsystems = require('../solar_systems.js')
-
 
 module.exports = function(app) {
     app.post('/commands/resetAccount', function(req, res) {

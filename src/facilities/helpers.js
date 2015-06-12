@@ -3,11 +3,10 @@
 var Q = require('q'),
     inventory = require('../inventory'),
     db = require('spacebox-common-native').db,
-    C = require('spacebox-common'),
-    dao = require('../dao')
+    C = require('spacebox-common')
 
 function updateInventory(action, uuid, slice, items, db) {
-    return dao.inventory.getForUpdateOrFail(uuid, db).
+    return db.inventory.getForUpdateOrFail(uuid, db).
     then(function(container) {
         var args
 
@@ -26,7 +25,7 @@ function updateInventory(action, uuid, slice, items, db) {
         }
 
         Q.all(items.map(function(item) {
-            return dao.blueprints.get(item.blueprint).
+            return db.blueprints.get(item.blueprint).
             then(function(blueprint) {
                 return {
                     blueprint: blueprint,
@@ -37,7 +36,7 @@ function updateInventory(action, uuid, slice, items, db) {
             args.push(list, db)
         }).then(function() {
             return inventory.transfer.apply(inventory, args).tap(function() {
-                db.ctx.debug('build', 'contents after', action, container.doc.contents)
+                db.ctx.old_debug('build', 'contents after', action, container.doc.contents)
             })
         })
     })
@@ -82,10 +81,10 @@ var self = module.exports = {
             return (acc - blueprint.size)
         }, target.doc.usage)
 
-        ctx.debug('build', "updated modules", target.doc.modules)
-        ctx.debug('build', "updated inventory", target.doc.contents)
+        ctx.old_debug('build', "updated modules", target.doc.modules)
+        ctx.old_debug('build', "updated inventory", target.doc.contents)
 
-        return inventory.dao.update(target.id, target.doc, db).
+        return db.inventory.update(target.id, target.doc, db).
         then(function() {
             return self.produce(container.id, container_slice, changes.removed.map(function(key) {
                 return {

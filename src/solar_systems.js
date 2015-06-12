@@ -1,31 +1,11 @@
 'use strict';
 
 var util = require('util'),
-    npm_debug = require('debug'),
-    log = npm_debug('3dsim:info'),
-    error = npm_debug('3dsim:error'),
-    debug = npm_debug('3dsim:debug'),
     C = require('spacebox-common'),
     Q = require('q'),
     config = require('./config.js'),
-    worldState = require('./redisWorldState.js'),
+    worldState = require('spacebox-common-native/lib/redis-state'),
     db = require('spacebox-common-native').db
-
-var dao = {
-    systems: {
-        insert: function(id, doc) {
-            return db.
-            query("insert into solar_systems (id, doc) values ($1, $2)", [id, doc])
-        }
-    },
-    wormholes: {
-        randomGeneratorFn: function(system_id) {
-            return function() {
-                return db.query("with available_systems as (select * from system_wormholes where count < $3 and id != $1 and id not in (select inbound_system from wormholes where outbound_system = $1)) insert into wormholes (id, expires_at, outbound_system, inbound_system) select uuid_generate_v1(), current_timestamp + interval $4, $1, (select id from available_systems offset floor(random()*(select count(*) from available_systems)) limit 1) where not exists (select id from system_wormholes where id = $1 and count >= $2) returning id", [system_id, config.game.minimum_count_wormholes, config.game.maximum_count_wormholes, config.game.wormhole_lifetime])
-            }
-        }
-    }
-}
 
 var self = {
     getSpawnSystemId: function() {
@@ -43,12 +23,12 @@ var self = {
             return data[0].id
         })
     },
-    populateWormholes: function(data) {
-        debug(data)
+    populateWormholes: function(data, ctx) {
+        ctx.debug({ wormholes: data }, 'wormholes in system')
 
         return Q.all(data.map(function(row) {
             var q = Q(null),
-                fn = dao.wormholes.randomGeneratorFn(row.id)
+                fn = db.wormholes.randomGeneratorFn(row.id)
 
             // The generator function SQL will make sure
             // we only create the correct number of wormholes
@@ -59,11 +39,11 @@ var self = {
             return q
         }))
     },
-    getWormholes: function(systemid) {
-        debug(systemid)
+    getWormholes: function(systemid, ctx) {
+        ctx.debug({ system_id: systemid }, 'searching for current wormholes')
 
         return db.query("select * from system_wormholes where id = $1", [systemid]).
-        then(self.populateWormholes).
+        then(self.populateWormholes, ctx).
         then(function() {
             return db.query("select * from wormholes where (inbound_system = $1 or outbound_system = $1) and expires_at > current_timestamp ", [systemid])
         })
@@ -79,8 +59,8 @@ var self = {
     whenIsReady: function() {
         return self.ensurePoolSize()
     },
-    checkWormholeTTL: function() {
-        debug("checking expired wormholes")
+    checkWormholeTTL: function(ctx) {
+        ctx.debug("checking expired wormholes")
 
         db.query("select * from wormholes where expires_at < current_timestamp").
         then(function(data) {

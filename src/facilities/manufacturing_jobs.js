@@ -4,7 +4,6 @@ var Q = require('q'),
     C = require('spacebox-common'),
     production = require('../production_dep.js'),
     inventory = require('../inventory'),
-    dao = require('../dao'),
     helpers = require('./helpers')
 
 module.exports = {
@@ -19,7 +18,7 @@ module.exports = {
 
     },
     fullfillResources: function(ctx, job, blueprint, container, db) {
-        ctx.debug('build', blueprint)
+        ctx.old_debug('build', blueprint)
 
         return helpers.consumeBuildResources(job.quantity, blueprint.build, container, job.slice, ctx, db)
     },

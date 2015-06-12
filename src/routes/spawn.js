@@ -6,12 +6,11 @@ var Q = require('q'),
     db = require('spacebox-common-native').db,
     C = require('spacebox-common')
 
-var worldState = require('../redisWorldState'),
+var worldState = require('spacebox-common-native/lib/redis-state'),
     solarsystems = require('../solar_systems'),
     th = require('spacebox-common/src/three_helpers'),
     config = require('../config'),
     space_data = require('../space_data'),
-    dao = require('../dao'),
     inventory = require('../inventory')
 
 function spawnVessel(ctx, msg) {
@@ -24,7 +23,7 @@ function spawnVessel(ctx, msg) {
             })
         }
     }).then(function() {
-        return dao.blueprints.get(msg.blueprint)
+        return db.blueprints.get(msg.blueprint)
     }).then(function(blueprint) {
         var account,
             target,
@@ -90,7 +89,7 @@ module.exports = function(app) {
                     tombstone: true
                 })
             }).then(function(data) {
-                res.send({
+                res.json({
                     result: data
                 })
             })
@@ -128,7 +127,7 @@ module.exports = function(app) {
                     slice: msg.slice
                 }
             }).then(function(data) {
-                res.send({
+                res.json({
                     result: data
                 })
             })
@@ -138,7 +137,7 @@ module.exports = function(app) {
     app.post('/commands/spawn', function(req, res) {
         C.http.authorize_req(req, true).then(function(auth) {
             return spawnVessel(req.ctx, req.body).then(function(data) {
-                res.send({
+                res.json({
                     result: data
                 })
             })
@@ -156,7 +155,7 @@ module.exports = function(app) {
                 console.log('getting_started', data)
                 return Q.all([
                     solarsystems.getSpawnSystemId(),
-                    dao.blueprints.get(data.blueprint_id),
+                    db.blueprints.get(data.blueprint_id),
                     data
                 ])
             }).spread(function(solar_system, blueprint, data) {
@@ -167,7 +166,7 @@ module.exports = function(app) {
                     solar_system: solar_system
                 })
             }).then(function(data) {
-                res.send({
+                res.json({
                     result: data
                 })
             })

@@ -4,8 +4,7 @@ var Q = require('q'),
     C = require('spacebox-common'),
     production = require('../production_dep.js'),
     inventory = require('../inventory'),
-    dao = require('../dao'),
-    worldState = require('../redisWorldState'),
+    worldState = require('spacebox-common-native/lib/redis-state'),
     helpers = require('./helpers')
 
 module.exports = {
@@ -40,7 +39,7 @@ module.exports = {
             }
         }).then(function() {
             if (job.modules !== undefined) {
-                return dao.blueprints.getMany(job.modules).
+                return db.blueprints.getMany(job.modules).
                 then(function(list) {
                     return helpers.prepareRefit(container, list, container, job.slice, ctx, db)
                 })
@@ -50,7 +49,7 @@ module.exports = {
     deliverJob: function(ctx, job, container, db) {
         return Q.fcall(function() {
             if (job.change_blueprint) {
-                return dao.blueprints.get(job.blueprint).
+                return db.blueprints.get(job.blueprint).
                 then(function(blueprint) {
                     var new_obj = JSON.parse(JSON.stringify(blueprint))
                     new_obj.blueprint = blueprint.uuid
@@ -68,7 +67,7 @@ module.exports = {
             }
         }).then(function() {
             if (job.modules !== undefined) {
-                return dao.blueprints.getMany(job.modules).
+                return db.blueprints.getMany(job.modules).
                 then(function(list) {
                     return inventory.setModules(container, list, db)
                 })

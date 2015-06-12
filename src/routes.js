@@ -2,8 +2,7 @@
 
 var C = require('spacebox-common'),
     Q = require('q'),
-    redisLib = require('promise-redis')(Q.Promise),
-    redis = redisLib.createClient(),
+    redis = require('spacebox-common-native').buildRedis(),
     config = require('./config')
 
 Q.longStackSupport = true
@@ -19,6 +18,6 @@ module.exports = function(app) {
                 stats: JSON.parse(data),
                 config: config.game
             })
-        }).fail(C.http.errHandler(req, res, console.log)).done()
+        }).fail(C.http.errHandler(req, res)).done()
     })
 }
