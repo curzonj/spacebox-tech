@@ -54,6 +54,7 @@ require('./blueprints.js').router(app)
 require('./inventory.js').router(app)
 require('./production.js').router(app)
 
+var logger = C.logging.defaultCtx()
 worldState.loadWorld().then(function() {
     var server = http.createServer(app)
     // TODO implement this configurably
@@ -62,6 +63,6 @@ worldState.loadWorld().then(function() {
 
     require('./pubsub.js').setup_websockets(server)
 
-    console.log("server ready")
+    logger.info("server ready")
 }).done()
 

@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "require-dir": "^0.1.0",
+    "tracing-framework": "latest",
     "gulp-jscs": "latest",
     "gulp-jsbeautifier": "latest",
     "gulp-jshint": "latest",

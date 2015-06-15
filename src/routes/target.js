@@ -4,10 +4,12 @@ var Q = require('q'),
     C = require('spacebox-common'),
     worldState = require('spacebox-common-native/lib/redis-state')
 
-function validateSubjectTarget(subject, target, auth) {
-    if (subject === null || subject.account !== auth.account) {
+function validateSubjectTarget(ctx, subject, target, auth) {
+    ctx.trace({subject: subject, target: target, auth: auth}, 'validateSubjectTarget')
+
+    if (subject === null || subject == undefined || subject.account !== auth.account) {
         throw new Error("no such vessel")
-    } else if (target === null) {
+    } else if (target === null || target == undefined) {
         throw new Error("no such target")
     } else if (target.solar_system !== subject.solar_system) {
         throw new Error("")
@@ -34,7 +36,7 @@ module.exports = function(app) {
             worldState.get(msg.vessel),
             worldState.get(msg.target),
         ], function(auth, ship, target) {
-            validateSubjectTarget(ship, target, auth)
+            validateSubjectTarget(req.ctx, ship, target, auth)
 
             setState(ship, 'weapon', 'shoot', {
                 target: msg.target
@@ -57,7 +59,7 @@ module.exports = function(app) {
                 throw new Error("no such vessel")
 
             setState(ship, 'engine', 'moveTo', {
-                moveTo: msg.target
+                moveTo: C.assertVector(msg.target)
             }).then(function(data) {
                 res.json({
                     result: data
@@ -74,7 +76,7 @@ module.exports = function(app) {
             worldState.get(msg.vessel),
             worldState.get(msg.target),
         ], function(auth, ship, target) {
-            validateSubjectTarget(ship, target, auth)
+            validateSubjectTarget(req.ctx, ship, target, auth)
 
             setState(ship, 'engine', 'orbit', {
                 orbitRadius: msg.radius || 1,
