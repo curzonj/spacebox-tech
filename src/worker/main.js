@@ -41,6 +41,7 @@ var solarsystems = require('../solar_systems.js')
                 })
 
 
+    /// This is for the space_object database table
         if (keys_to_update_on.some(function(i) {
                 return patch.hasOwnProperty(i)
             })) {
