@@ -5,11 +5,14 @@ var http = require("http"),
     bodyParser = require('body-parser'),
     uuidGen = require('node-uuid'),
     Q = require('q'),
-    worldState = require('spacebox-common-native/lib/redis-state'),
+    WTF = require('wtf-shim'),
     config = require('./config.js'),
     C = require('spacebox-common')
 
+C.logging.configure('api')
 require('./db_config')
+
+var worldState = require('spacebox-common-native/src/redis-state')
 
 C.configure({
     AUTH_URL: process.env.AUTH_URL,
@@ -54,9 +57,12 @@ require('./blueprints.js').router(app)
 require('./inventory.js').router(app)
 require('./production.js').router(app)
 
-var logger = C.logging.defaultCtx()
-worldState.loadWorld().then(function() {
+WTF.trace.node.start({ })
+
+worldState.events.once('worldloaded', function() {
+    var logger = C.logging.defaultCtx()
     var server = http.createServer(app)
+
     // TODO implement this configurably
     //server.timeout = 5000
     server.listen(port)
@@ -64,5 +70,6 @@ worldState.loadWorld().then(function() {
     require('./pubsub.js').setup_websockets(server)
 
     logger.info("server ready")
-}).done()
+})
 
+worldState.subscribe()

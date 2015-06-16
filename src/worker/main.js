@@ -1,5 +1,9 @@
 'use strict';
 
+var C = require('spacebox-common')
+
+C.logging.configure('worker')
+
 require('../db_config')
 
 var solarsystems = require('../solar_systems.js')

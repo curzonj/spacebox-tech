@@ -4,7 +4,7 @@ var Q = require('q'),
     C = require('spacebox-common'),
     production = require('../production_dep.js'),
     inventory = require('../inventory'),
-    worldState = require('spacebox-common-native/lib/redis-state'),
+    worldState = require('spacebox-common-native/src/redis-state'),
     helpers = require('./helpers')
 
 module.exports = {

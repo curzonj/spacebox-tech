@@ -4,9 +4,10 @@ var Q = require('q'),
     config = require('./config.js'),
     db = require('spacebox-common-native').db,
     th = require('spacebox-common/src/three_helpers.js'),
+    uuidGen = require('node-uuid'),
     C = require('spacebox-common')
 
-var worldState = require('spacebox-common-native/lib/redis-state'),
+var worldState = require('spacebox-common-native/src/redis-state'),
     config = require('./config')
 
 var self = module.exports = {

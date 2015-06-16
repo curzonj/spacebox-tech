@@ -4,7 +4,7 @@ var util = require('util'),
     C = require('spacebox-common'),
     Q = require('q'),
     config = require('./config.js'),
-    worldState = require('spacebox-common-native/lib/redis-state'),
+    worldState = require('spacebox-common-native/src/redis-state'),
     db = require('spacebox-common-native').db
 
 var self = {

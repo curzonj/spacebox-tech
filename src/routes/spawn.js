@@ -6,7 +6,7 @@ var Q = require('q'),
     db = require('spacebox-common-native').db,
     C = require('spacebox-common')
 
-var worldState = require('spacebox-common-native/lib/redis-state'),
+var worldState = require('spacebox-common-native/src/redis-state'),
     solarsystems = require('../solar_systems'),
     th = require('spacebox-common/src/three_helpers'),
     config = require('../config'),
@@ -148,11 +148,8 @@ module.exports = function(app) {
         C.http.authorize_req(req).then(function(auth) {
             var uuid = uuidGen.v1()
 
-            return C.request('api', 'POST', 200, '/getting_started', {
-                uuid: uuid,
-                account: auth.account
-            }, req.ctx).then(function(data) {
-                console.log('getting_started', data)
+            return inventory.getStarterData(req.ctx, uuid, auth.account).
+            then(function(data) {
                 return Q.all([
                     solarsystems.getSpawnSystemId(),
                     db.blueprints.get(data.blueprint_id),

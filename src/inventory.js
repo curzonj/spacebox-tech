@@ -260,7 +260,7 @@ var self = module.exports = {
             }
 
             if (isNaN(src_doc.usage) || src_doc.usage < 0) {
-                console.log(src_doc)
+                db.ctx.warn({ src_doc: src_doc }, "something messed up the usage")
                 throw new Error("something messed up the usage")
             }
         }
@@ -341,51 +341,44 @@ var self = module.exports = {
             }, Q(null))
         })
     },
-    router: function(app) {
-        app.post('/getting_started', function(req, res) {
-            var data = req.body
+    getStarterData: function(ctx, uuid, account) {
+        var loadout = config.game.starter_loadout
 
-            Q.spread([
-                C.http.authorize_req(req, true),
-                db.blueprints.all(),
-                config.game.starter_loadout,
-            ], function(auth, blueprints, loadout) {
-                var blueprint = C.find(blueprints, loadout.blueprint_query)
+        return db.blueprints.all().then(function(blueprints) {
+            var blueprint = C.find(blueprints, loadout.blueprint_query)
 
-                return db.tx(req.ctx, function(db) {
-                    return db.one("select count(*) as count from items where account = $1", data.account).
-                    then(function(row) {
-                        if (row.count > 0)
-                            throw new C.http.Error(403, "invalid_request", {
-                                msg: "This account already has assets"
-                            })
-                    }).then(function() {
-                        return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)", [data.uuid, data.account, blueprint.uuid, unique_item_doc(blueprint.uuid)])
-                    }).then(function() {
-                        return buildContainerIfNeeded(req.ctx, data.uuid, data.account, blueprint, db)
-                    }).then(function() {
-                        return db.inventory.getForUpdateOrFail(data.uuid, db).
-                        then(function(dest_container) {
-                            return self.transfer(null, null, dest_container, 'default',
-                                loadout.contents.map(function(obj) {
-                                    console.log(blueprint)
-                                    return {
-                                        blueprint: C.find(blueprints, obj.query),
-                                        quantity: obj.quantity
-                                    }
-                                }), db)
+            return db.tx(ctx, function(db) {
+                return db.one("select count(*) as count from items where account = $1", account).
+                then(function(row) {
+                    if (row.count > 0)
+                        throw new C.http.Error(403, "invalid_request", {
+                            msg: "This account already has assets"
                         })
-                    })
-                }).then(function(data) {
-                    res.json({
-                        blueprint_id: blueprint.uuid,
-                        modules: blueprint.native_modules || []
+                }).then(function() {
+                    return db.none("insert into items (id, account, blueprint_id, container_id, container_slice, doc) values ($1, $2, $3, null, null, $4)", [uuid, account, blueprint.uuid, unique_item_doc(blueprint.uuid)])
+                }).then(function() {
+                    return buildContainerIfNeeded(ctx, uuid, account, blueprint, db)
+                }).then(function() {
+                    return db.inventory.getForUpdateOrFail(uuid, db).
+                    then(function(dest_container) {
+                        return self.transfer(null, null, dest_container, 'default',
+                            loadout.contents.map(function(obj) {
+                                return {
+                                    blueprint: C.find(blueprints, obj.query),
+                                    quantity: obj.quantity
+                                }
+                            }), db)
                     })
                 })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            }).then(function() {
+                return {
+                    blueprint_id: blueprint.uuid,
+                    modules: blueprint.native_modules || []
+                }
+            })
         })
-
-
+    },
+    router: function(app) {
         // this is how spodb undocks vessels
         app.post('/vessels', function(req, res) {
             var data = req.body

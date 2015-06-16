@@ -5,7 +5,7 @@ var Q = require('q'),
     db = require('spacebox-common-native').db,
     C = require('spacebox-common')
 
-var worldState = require('spacebox-common-native/lib/redis-state'),
+var worldState = require('spacebox-common-native/src/redis-state'),
     solarsystems = require('../solar_systems.js')
 
 module.exports = function(app) {

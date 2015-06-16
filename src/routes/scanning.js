@@ -6,7 +6,7 @@ var Q = require('q'),
     db = require('spacebox-common-native').db,
     C = require('spacebox-common')
 
-var worldState = require('spacebox-common-native/lib/redis-state'),
+var worldState = require('spacebox-common-native/src/redis-state'),
     space_data = require('../space_data.js'),
     config = require('../config.js'),
     th = require('spacebox-common/src/three_helpers.js'),

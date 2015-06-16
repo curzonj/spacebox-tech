@@ -2,14 +2,15 @@
 
 var Q = require('q'),
     C = require('spacebox-common'),
-    worldState = require('spacebox-common-native/lib/redis-state')
+    config = require('../config'),
+    worldState = require('spacebox-common-native/src/redis-state')
 
 function validateSubjectTarget(ctx, subject, target, auth) {
     ctx.trace({subject: subject, target: target, auth: auth}, 'validateSubjectTarget')
 
-    if (subject === null || subject == undefined || subject.account !== auth.account) {
+    if (subject === null || subject === undefined || subject.account !== auth.account) {
         throw new Error("no such vessel")
-    } else if (target === null || target == undefined) {
+    } else if (target === null || target === undefined) {
         throw new Error("no such target")
     } else if (target.solar_system !== subject.solar_system) {
         throw new Error("")
@@ -71,19 +72,23 @@ module.exports = function(app) {
     app.post('/commands/orbit', function(req, res) {
         var msg = req.body
 
-        Q.spread([
-            C.http.authorize_req(req),
-            worldState.get(msg.vessel),
-            worldState.get(msg.target),
-        ], function(auth, ship, target) {
-            validateSubjectTarget(req.ctx, ship, target, auth)
+        C.http.authorize_req(req).then(function(auth) {
+            return worldState.waitForTick(req.ctx, msg.ts, config.tick_wait).
+            then(function() {
+                return Q.all([
+                    worldState.get(msg.vessel),
+                    worldState.get(msg.target),
+                ])
+            }).spread(function(ship, target) {
+                validateSubjectTarget(req.ctx, ship, target, auth)
 
-            setState(ship, 'engine', 'orbit', {
-                orbitRadius: msg.radius || 1,
-                orbitTarget: msg.target
-            }).then(function(data) {
-                res.json({
-                    result: data
+                setState(ship, 'engine', 'orbit', {
+                    orbitRadius: msg.radius || 1,
+                    orbitTarget: msg.target
+                }).then(function(data) {
+                    res.json({
+                        result: data
+                    })
                 })
             })
         }).fail(C.http.errHandler(req, res, console.log)).done()

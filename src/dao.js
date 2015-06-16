@@ -1,6 +1,6 @@
 'use strict';
 
-var DBClass = require('spacebox-common-native/lib/pg-wrapper'),
+var DBClass = require('spacebox-common-native/src/pg-wrapper'),
     config = require('./config'),
     moment = require('moment')
 
