@@ -16,10 +16,12 @@ var worldState = require('spacebox-common-native/src/redis-state'),
 function spawnVessel(ctx, msg) {
     return Q.fcall(function() {
         if (msg.uuid !== undefined) {
-            return worldState.get(msg.uuid).
+            return worldState.getP(msg.uuid).
             then(function(target) {
-                if (target !== null)
+                if (target) {
+                    ctx.warn({ requested: msg, existing: target }, 'uuid collision')
                     throw new Error("uuid collision")
+                }
             })
         }
     }).then(function() {
@@ -64,8 +66,8 @@ module.exports = function(app) {
 
         Q.spread([
             C.http.authorize_req(req),
-            worldState.get(msg.vessel_uuid),
-            worldState.get(msg.container),
+            worldState.getP(msg.vessel_uuid),
+            worldState.getP(msg.container),
         ], function(auth, vessel, container) {
             if (vessel === undefined || vessel.tombstone === true) {
                 throw new Error("no such vessel")
@@ -98,15 +100,9 @@ module.exports = function(app) {
 
     app.post('/commands/deploy', function(req, res) {
         var msg = req.body
-        Q.spread([C.http.authorize_req(req), worldState.get(msg.container_id)],
+        Q.spread([C.http.authorize_req(req), worldState.getP(msg.container_id)],
         function(auth, container) {
-            console.log('/commands/deploy', msg, container)
-
-            /*
-            var num_vessels = Object.keys(h.visibility.privilegedKeys).length
-            if (num_vessels >= config.game.maximum_vessels)
-                throw new Error("already have the maximum number of deployed vessels")
-                */
+            req.ctx.trace({ container: container }, 'deploy from')
 
             if (container === undefined)
                 throw new Error("failed to find the container to launch the vessel. container_id=" + msg.container_id)
@@ -116,16 +112,27 @@ module.exports = function(app) {
 
             msg.account = auth.account
 
-            return spawnVessel(req.ctx, {
-                uuid: msg.vessel_uuid, // uuid may be undefined here, spawnVessel will populate it if need be
-                blueprint: msg.blueprint,
-                account: auth.account,
-                position: C.deepMerge(container.position, {}),
-                solar_system: container.solar_system,
-                from: {
-                    uuid: msg.container_id,
-                    slice: msg.slice
-                }
+            return Q.fcall(function() {
+                if (!auth.priviliged)
+                    return db.one(
+                        "select count(*) as count from items where account = $1",
+                        auth.account).
+                    then(function(result) {
+                        if (result.count >= config.game.maximum_vessels)
+                            throw new Error("already have the maximum number of deployed vessels")
+                    })
+            }).then(function() {
+                return spawnVessel(req.ctx, {
+                    uuid: msg.vessel_uuid, // uuid may be undefined here, spawnVessel will populate it if need be
+                    blueprint: msg.blueprint,
+                    account: auth.account,
+                    position: C.deepMerge(container.position, {}),
+                    solar_system: container.solar_system,
+                    from: {
+                        uuid: msg.container_id,
+                        slice: msg.slice
+                    }
+                })
             }).then(function(data) {
                 res.json({
                     result: data

@@ -34,8 +34,8 @@ module.exports = function(app) {
 
         Q.spread([
             C.http.authorize_req(req),
-            worldState.get(msg.vessel),
-            worldState.get(msg.target),
+            worldState.getP(msg.vessel),
+            worldState.getP(msg.target),
         ], function(auth, ship, target) {
             validateSubjectTarget(req.ctx, ship, target, auth)
 
@@ -54,7 +54,7 @@ module.exports = function(app) {
 
         Q.spread([
             C.http.authorize_req(req),
-            worldState.get(msg.vessel),
+            worldState.getP(msg.vessel),
         ], function(auth, ship) {
             if (ship === null || ship.account !== auth.account)
                 throw new Error("no such vessel")
@@ -76,8 +76,8 @@ module.exports = function(app) {
             return worldState.waitForTick(req.ctx, msg.ts, config.tick_wait).
             then(function() {
                 return Q.all([
-                    worldState.get(msg.vessel),
-                    worldState.get(msg.target),
+                    worldState.getP(msg.vessel),
+                    worldState.getP(msg.target),
                 ])
             }).spread(function(ship, target) {
                 validateSubjectTarget(req.ctx, ship, target, auth)
@@ -99,7 +99,7 @@ module.exports = function(app) {
 
         Q.spread([
             C.http.authorize_req(req),
-            worldState.get(msg.vessel),
+            worldState.getP(msg.vessel),
         ], function(auth, ship) {
             if (ship === null || ship.account !== auth.account)
                 throw new Error("no such vessel")

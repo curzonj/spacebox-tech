@@ -5,7 +5,7 @@
     "parameters": {
       "max_docking_size": 0,
       "capacity": 20,
-      "maxHealth": 400,
+      "maxHealth": 100,
       "thrust": 1,
       "manuvering_thrust": 1,
       "tech_level": 1
@@ -17,7 +17,7 @@
     "parameters": {
       "max_docking_size": 0,
       "capacity": 2000,
-      "maxHealth": 400,
+      "maxHealth": 100,
       "tech_level": 1
     }
   },

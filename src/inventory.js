@@ -1,14 +1,14 @@
 'use strict';
 
-var uuidGen = require('node-uuid'),
-    db = require('spacebox-common-native').db,
-    path = require('path'),
-    FS = require("q-io/fs"),
-    Q = require('q'),
-    C = require('spacebox-common')
+var uuidGen = require('node-uuid')
+var db = require('spacebox-common-native').db
+var path = require('path')
+var FS = require("q-io/fs")
+var Q = require('q')
+var C = require('spacebox-common')
 
-var config = require('./config.js'),
-    production = require('./production_dep.js')
+var config = require('./config.js')
+var production = require('./production_dep.js')
 
 function unique_item_doc(blueprint) {
     return {

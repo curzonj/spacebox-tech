@@ -13,10 +13,10 @@ module.exports = function(app) {
         C.http.authorize_req(req).then(function(auth) {
             var msg = req.body
 
-            return db.query("select * from space_objects where tombstone = 'f' and account_id = $1", auth.account).then(function(data) {
+            return db.query("select * from items where account = $1", auth.account).then(function(data) {
                 return Q.all(data.map(function(row) {
-                    // World state will notify inventory which will delete
-                    // both containers and facilities
+                    // World state will notify us when it has despawned and
+                    // we can delete everything
                     return worldState.queueChangeIn(row.id, {
                         tombstone_cause: 'despawned',
                         tombstone: true

@@ -21,7 +21,7 @@ module.exports = function(app) {
         var msg = req.body
         var shipId = msg.vessel
 
-        Q.spread([C.http.authorize_req(req), worldState.get(msg.vessel)],
+        Q.spread([C.http.authorize_req(req), worldState.getP(msg.vessel)],
         function(auth, ship) {
             if (ship === undefined)
                 throw "invalid vessel"
@@ -73,8 +73,8 @@ module.exports = function(app) {
 
         Q.spread([
             C.http.authorize_req(req),
-            worldState.get(msg.vessel),
-            worldState.get(msg.wormhole),
+            worldState.getP(msg.vessel),
+            worldState.getP(msg.wormhole),
         ], function(auth, ship, wormhole) {
             var systemId = ship.solar_system
             if (wormhole.solar_system !== systemId) {
@@ -128,7 +128,7 @@ module.exports = function(app) {
                 }
 
                 return before.then(function() {
-                    return worldState.get(destination_id)
+                    return worldState.getP(destination_id)
                 }).then(function(destination_spo) {
                     // When you jump through the wormhole you're not moving
                     // when you get there
