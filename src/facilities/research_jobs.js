@@ -1,11 +1,12 @@
 'use strict';
 
-var Q = require('q'),
-    C = require('spacebox-common'),
-    production = require('../production_dep.js'),
-    inventory = require('../inventory'),
-    design_api = require('../blueprints'),
-    helpers = require('./helpers')
+var Q = require('q')
+var C = require('spacebox-common')
+var production = require('../production_dep.js')
+var inventory = require('../inventory')
+var design_api = require('../blueprints')
+var helpers = require('./helpers')
+var config = require('../config')
 
 module.exports = {
     buildJob: function(ctx, job, blueprint, facilityType) {
@@ -13,7 +14,7 @@ module.exports = {
         job.duration = 30
     },
     fullfillResources: function(ctx, job, blueprint, container, db) {
-        var tech = design_api.techs_data[blueprint.tech]
+        var tech = config.design_techs[blueprint.tech]
         
         var step_cost = Math.floor(C.calc_poly({
             parameters: [ "value" ],

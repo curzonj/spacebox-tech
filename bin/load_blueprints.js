@@ -9,12 +9,13 @@ var uuidGen = require('node-uuid'),
 C.logging.configure('load_blueprints')
 require('../src/db_config')
 
-var design_api = require('../src/blueprints'),
-    db = require('spacebox-common-native').db
+var design_api = require('../src/blueprints')
+var config = require('../src/config')
+var db = require('spacebox-common-native').db
 
 var designs = [],
-    raw_materials = JSON.parse(fs.readFileSync(path.resolve(__filename, "../../data/raw_materials.json"))),
-    public_designs = JSON.parse(fs.readFileSync(path.resolve(__filename, "../../data/public_designs.json")))
+    raw_materials = config.raw_materials,
+    public_designs = config.public_designs
 
 db.tx(function(db) {
 return Q.all([

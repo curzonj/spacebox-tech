@@ -1,13 +1,13 @@
 'use strict';
 
-var uuidGen = require('node-uuid'),
-    path = require('path'),
-    fs = require("fs"),
-    db = require('spacebox-common-native').db,
-    C = require('spacebox-common'),
-    config = require('./config'),
-    Q = require('q')
-
+var uuidGen = require('node-uuid')
+var path = require('path')
+var fs = require("fs")
+var db = require('spacebox-common-native').db
+var C = require('spacebox-common')
+var config = require('./config')
+var Q = require('q')
+var worldState = require('spacebox-common-native/src/redis-state')
 
 function buildBigList(rows) {
     return rows.reduce(function(acc, row) {
@@ -17,7 +17,6 @@ function buildBigList(rows) {
 }
 
 var self = module.exports = {
-    techs_data: JSON.parse(fs.readFileSync(path.resolve(__filename, "../../data/design_techs.json"))),
     determineBuildResources: function(input_params) {
         var time = Math.floor(C.calc_poly({
             parameters: config.game.build_time.parameters,
@@ -36,11 +35,42 @@ var self = module.exports = {
             }
         }
     },
+    updateBlueprint: function(uuid, blueprint) {
+        var new_obj = JSON.parse(JSON.stringify(blueprint))
+        new_obj.blueprint = blueprint.uuid
+        delete new_obj.uuid
+
+        // TODO what happens to it's health
+        // TODO what about changes to modules?
+
+        return worldState.queueChangeIn(uuid, new_obj)
+    },
+    calculateBlueprintValues: function(tech, doc, parameters) {
+        var input_params = C.deepMerge(parameters, 
+            C.deepMerge(config.game.global_parameters, {
+                tech_level: 1,
+            }))
+
+        Object.keys(tech.functions).forEach(function(key) {
+            var poly = tech.functions[key]
+            //console.log(poly)
+            //console.log(d)
+            var value = Math.floor(C.calc_poly({
+                parameters: poly.parameters,
+                components: poly.components
+            }, input_params))
+
+            doc[key] = value
+            input_params[key] = value
+        })
+
+        doc.build = self.determineBuildResources(input_params)
+    },
     buildNewBlueprint: function(parent, parameters, is_public, native_modules) {
         var bp_type,
             d = parent,
             uuid = uuidGen.v1(),
-            tech = self.techs_data[d.tech]
+            tech = config.design_techs[d.tech]
 
         switch(d.tech) {
             case 'spaceship':
@@ -59,28 +89,10 @@ var self = module.exports = {
             tech_type: tech.type,
         }
 
-        var input_params = C.deepMerge(parameters, 
-            C.deepMerge(config.game.global_parameters, {
-                tech_level: 1,
-            }))
-
         C.deepMerge(parameters, doc)
         C.deepMerge(tech.attributes || {}, doc)
 
-        Object.keys(tech.functions).forEach(function(key) {
-            var poly = tech.functions[key]
-            //console.log(poly)
-            //console.log(d)
-            var value = Math.floor(C.calc_poly({
-                parameters: poly.parameters,
-                components: poly.components
-            }, input_params))
-
-            doc[key] = value
-            input_params[key] = value
-        })
-
-        doc.build = self.determineBuildResources(input_params)
+        self.calculateBlueprintValues(tech, doc, parameters)
 
         if (native_modules !== undefined)
             doc.native_modules = native_modules

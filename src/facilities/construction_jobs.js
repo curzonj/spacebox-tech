@@ -1,11 +1,12 @@
 'use strict';
 
-var Q = require('q'),
-    C = require('spacebox-common'),
-    production = require('../production_dep.js'),
-    inventory = require('../inventory'),
-    worldState = require('spacebox-common-native/src/redis-state'),
-    helpers = require('./helpers')
+var Q = require('q')
+var C = require('spacebox-common')
+var production = require('../production_dep.js')
+var inventory = require('../inventory')
+var worldState = require('spacebox-common-native/src/redis-state')
+var helpers = require('./helpers')
+var design_api = require('../blueprints')
 
 module.exports = {
     buildJob: function(ctx, job, blueprint, facilityType) {
@@ -51,16 +52,8 @@ module.exports = {
             if (job.change_blueprint) {
                 return db.blueprints.get(job.blueprint).
                 then(function(blueprint) {
-                    var new_obj = JSON.parse(JSON.stringify(blueprint))
-                    new_obj.blueprint = blueprint.uuid
-                    delete new_obj.uuid
-
-                    // TODO what happens to a structure's health when it's
-                    // upgraded?
-                    // TODO what about changes to structure modules?
-
                     return Q.all([
-                        worldState.queueChangeIn(job.inventory_id, new_obj),
+                        design_api.updateBlueprint(job.inventory_id, blueprint),
                         inventory.updateContainer(ctx, container, blueprint, db)
                     ])
                 })

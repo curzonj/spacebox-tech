@@ -10,7 +10,9 @@ module.exports = function(app) {
 
     app.get('/specs', function(req, res) {
         res.send({
-            config: config.game
+            config: config.game,
+            raw_materials: config.raw_materials,
+            public_designs: config.public_designs,
         })
     })
 }
