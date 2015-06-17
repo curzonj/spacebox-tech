@@ -2,10 +2,13 @@
 
 var Q = require('q')
 var C = require('spacebox-common')
-var production = require('../production_dep.js')
-var inventory = require('../inventory')
-var worldState = require('spacebox-common-native/src/redis-state')
+
+var config = require('../config')
+var worldState = config.state
+
 var helpers = require('./helpers')
+var production = require('../production_dep')
+var inventory = require('../inventory')
 var design_api = require('../blueprints')
 
 module.exports = {

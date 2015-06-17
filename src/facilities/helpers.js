@@ -1,9 +1,11 @@
 'use strict';
 
-var Q = require('q'),
-    inventory = require('../inventory'),
-    db = require('spacebox-common-native').db,
-    C = require('spacebox-common')
+var Q = require('q')
+var C = require('spacebox-common')
+
+var config = require('../config')
+var db = config.db
+var inventory = require('../inventory')
 
 function updateInventory(action, uuid, slice, items, db) {
     return db.inventory.getForUpdateOrFail(uuid, db).

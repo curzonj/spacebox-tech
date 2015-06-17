@@ -1,9 +1,9 @@
 'use strict';
 
-var Q = require('q'),
-    C = require('spacebox-common'),
-    config = require('../config'),
-    worldState = require('spacebox-common-native/src/redis-state')
+var Q = require('q')
+var C = require('spacebox-common')
+var config = require('../config')
+var worldState = config.state
 
 function validateSubjectTarget(ctx, subject, target, auth) {
     ctx.trace({subject: subject, target: target, auth: auth}, 'validateSubjectTarget')

@@ -1,16 +1,16 @@
 'use strict';
 
-var Q = require('q'),
-    THREE = require('three'),
-    uuidGen = require('node-uuid'),
-    db = require('spacebox-common-native').db,
-    C = require('spacebox-common')
+var Q = require('q')
+var C = require('spacebox-common')
+var uuidGen = require('node-uuid')
+var THREE = require('three')
+var th = require('spacebox-common/src/three_helpers')
 
-var worldState = require('spacebox-common-native/src/redis-state'),
-    space_data = require('../space_data.js'),
-    config = require('../config.js'),
-    th = require('spacebox-common/src/three_helpers.js'),
-    solarsystems = require('../solar_systems.js')
+var config = require('../config')
+var db = config.db
+var worldState = config.state
+var space_data = require('../space_data')
+var solarsystems = require('../solar_systems')
 
 // NodeJS is single threaded so this is instead of object pooling
 var position1 = new THREE.Vector3()

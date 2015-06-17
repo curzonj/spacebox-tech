@@ -1,21 +1,18 @@
 'use strict';
 
-var uuidGen = require('node-uuid'),
-    path = require('path'),
-    fs = require("fs"),
-    C = require('spacebox-common'),
-    Q = require('q')
+var Q = require('q')
+var C = require('spacebox-common')
+var uuidGen = require('node-uuid')
 
-C.logging.configure('load_blueprints')
-require('../src/db_config')
-
-var design_api = require('../src/blueprints')
 var config = require('../src/config')
-var db = require('spacebox-common-native').db
+config.setName('load_blueprints')
 
-var designs = [],
-    raw_materials = config.raw_materials,
-    public_designs = config.public_designs
+var db = config.db
+var raw_materials = config.raw_materials
+var public_designs = config.public_designs
+var design_api = require('../src/blueprints')
+
+var designs = []
 
 db.tx(function(db) {
 return Q.all([

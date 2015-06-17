@@ -3,11 +3,12 @@
 var uuidGen = require('node-uuid')
 var path = require('path')
 var fs = require("fs")
-var db = require('spacebox-common-native').db
 var C = require('spacebox-common')
-var config = require('./config')
 var Q = require('q')
-var worldState = require('spacebox-common-native/src/redis-state')
+
+var config = require('./config')
+var worldState = config.state
+var db = config.db
 
 function buildBigList(rows) {
     return rows.reduce(function(acc, row) {

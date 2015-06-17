@@ -1,17 +1,15 @@
 'use strict';
 
-var uuidGen = require('node-uuid'),
-    moment = require('moment'),
-    Q = require('q'),
-    db = require('spacebox-common-native').db,
-    C = require('spacebox-common')
-
-var config = require('./config'),
-    pubsub = require('./pubsub.js'),
-    inventory = require('./inventory.js'),
-    generating = require('./facilities/generating.js'),
-    jobHandlers = require('./facilities/load_all.js')
-
+var uuidGen = require('node-uuid')
+var moment = require('moment')
+var Q = require('q')
+var C = require('spacebox-common')
+var pubsub = require('./pubsub')
+var inventory = require('./inventory')
+var generating = require('./facilities/generating')
+var jobHandlers = require('./facilities/load_all')
+var config = require('./config')
+var db = config.db
 
 function fullfillResources(ctx, data, db) {
     var job = data.doc
@@ -126,8 +124,8 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
 }
 
 setInterval(function() {
-    var jobRoundInProgress = false,
-        ctx = C.logging.create()
+    var jobRoundInProgress = false
+    var ctx = config.ctx
 
     function build_worker_fn(ctx) {
         if (jobRoundInProgress) {

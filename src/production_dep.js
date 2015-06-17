@@ -1,9 +1,11 @@
 'use strict';
 
-var Q = require('q'),
-    C = require('spacebox-common'),
-    db = require('spacebox-common-native').db,
-    pubsub = require('./pubsub.js')
+var Q = require('q')
+var C = require('spacebox-common')
+
+var config = require('./config')
+var worldState = config.state
+var pubsub = require('./pubsub')
 
 // This module exists only to eliminate a circular dependency between prod and inv
 // prod -> inv -> prod_dep

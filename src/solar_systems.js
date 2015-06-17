@@ -1,11 +1,12 @@
 'use strict';
 
-var util = require('util'),
-    C = require('spacebox-common'),
-    Q = require('q'),
-    config = require('./config.js'),
-    worldState = require('spacebox-common-native/src/redis-state'),
-    db = require('spacebox-common-native').db
+var Q = require('q')
+var C = require('spacebox-common')
+var util = require('util')
+
+var config = require('./config')
+var worldState = config.state
+var db = config.db
 
 var self = {
     getSpawnSystemId: function() {

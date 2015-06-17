@@ -1,16 +1,16 @@
 'use strict';
 
-var C = require('spacebox-common')
-C.logging.configure('worker')
-
-require('../db_config')
-
 var Q = require('q')
-var db = require('spacebox-common-native').db
+var C = require('spacebox-common')
+
+var config = require('../config')
+config.setName('worker')
 
 var solarsystems = require('../solar_systems.js')
-var worldState = require('spacebox-common-native/src/redis-state')
 var production = require('../production_dep.js')
+var ctx = config.ctx
+var db = config.db
+var worldState = config.state
 
 function destroyVessel(ctx, uuid) {
     return db.tx(ctx, function(db) {
@@ -30,8 +30,6 @@ function destroyVessel(ctx, uuid) {
 }
 
 worldState.events.on('worldtick', function(msg, deleted) {
-    var ctx = C.logging.defaultCtx()
-
     Object.keys(msg.changes).forEach(function(uuid) {
         var patch = msg.changes[uuid]
         if (patch.tombstone === true && (patch.tombstone_cause === 'destroyed' || patch.tombstone_cause === 'despawned')) {
@@ -43,7 +41,6 @@ worldState.events.on('worldtick', function(msg, deleted) {
 })
 
 setInterval(function() {
-    var ctx = C.logging.defaultCtx()
     solarsystems.checkWormholeTTL(ctx)
 }, 60000)
 

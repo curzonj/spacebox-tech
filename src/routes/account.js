@@ -1,12 +1,13 @@
 'use strict';
 
-var Q = require('q'),
-    uuidGen = require('node-uuid'),
-    db = require('spacebox-common-native').db,
-    C = require('spacebox-common')
+var Q = require('q')
+var C = require('spacebox-common')
+var uuidGen = require('node-uuid')
 
-var worldState = require('spacebox-common-native/src/redis-state'),
-    solarsystems = require('../solar_systems.js')
+var config = require('../config')
+var db = config.db
+var worldState = config.state
+var solarsystems = require('../solar_systems')
 
 module.exports = function(app) {
     app.post('/commands/resetAccount', function(req, res) {

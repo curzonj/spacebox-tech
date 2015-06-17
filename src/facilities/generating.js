@@ -1,15 +1,15 @@
 'use strict';
 
-var uuidGen = require('node-uuid'),
-    moment = require('moment'),
-    Q = require('q'),
-    db = require('spacebox-common-native').db,
-    C = require('spacebox-common')
+var Q = require('q')
+var C = require('spacebox-common')
+var moment = require('moment')
+var uuidGen = require('node-uuid')
 
-var config = require('../config'),
-    pubsub = require('../pubsub'),
-    inventory = require('../inventory'),
-    helpers = require('./helpers')
+var config = require('../config')
+var db = config.db
+var pubsub = require('../pubsub')
+var inventory = require('../inventory')
+var helpers = require('./helpers')
 
 module.exports = {
 

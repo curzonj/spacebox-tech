@@ -1,17 +1,17 @@
 'use strict';
 
-var Q = require('q'),
-    THREE = require('three'),
-    uuidGen = require('node-uuid'),
-    db = require('spacebox-common-native').db,
-    C = require('spacebox-common')
+var Q = require('q')
+var C = require('spacebox-common')
+var uuidGen = require('node-uuid')
+var THREE = require('three')
+var th = require('spacebox-common/src/three_helpers')
 
-var worldState = require('spacebox-common-native/src/redis-state'),
-    solarsystems = require('../solar_systems'),
-    th = require('spacebox-common/src/three_helpers'),
-    config = require('../config'),
-    space_data = require('../space_data'),
-    inventory = require('../inventory')
+var config = require('../config')
+var db = config.db
+var worldState = config.state
+var solarsystems = require('../solar_systems')
+var space_data = require('../space_data')
+var inventory = require('../inventory')
 
 function spawnVessel(ctx, msg) {
     return Q.fcall(function() {

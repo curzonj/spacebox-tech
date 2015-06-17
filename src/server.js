@@ -1,35 +1,29 @@
 'use strict';
 
-var http = require("http"),
-    express = require("express"),
-    bodyParser = require('body-parser'),
-    uuidGen = require('node-uuid'),
-    Q = require('q'),
-    WTF = require('wtf-shim'),
-    config = require('./config.js'),
-    C = require('spacebox-common')
+var http = require("http")
+var express = require("express")
+var bodyParser = require('body-parser')
+var uuidGen = require('node-uuid')
+var Q = require('q')
+var WTF = require('wtf-shim')
+var C = require('spacebox-common')
 
-C.logging.configure('api')
-require('./db_config')
+var config = require('./config')
+config.setName('api')
 
-var worldState = require('spacebox-common-native/src/redis-state')
-
-C.configure({
-    AUTH_URL: process.env.AUTH_URL,
-    credentials: process.env.INTERNAL_CREDS,
-})
+var worldState = config.state
 
 var app = express()
 var port = process.env.PORT || 5000
 
 var bunyanRequest = require('bunyan-request');
 app.use(bunyanRequest({
-  logger: C.logging.buildBunyan('api'),
+  logger: config.ctx,
   headerName: 'x-request-id'
 }));
 
 app.use(function(req, res, next) {
-    req.ctx = C.logging.create(req.log)
+    req.ctx = req.log
     next()
 })
 
@@ -60,7 +54,6 @@ require('./production.js').router(app)
 WTF.trace.node.start({ })
 
 worldState.events.once('worldloaded', function() {
-    var logger = C.logging.defaultCtx()
     var server = http.createServer(app)
 
     // TODO implement this configurably
@@ -69,7 +62,7 @@ worldState.events.once('worldloaded', function() {
 
     require('./pubsub.js').setup_websockets(server)
 
-    logger.info("server ready")
+    config.ctx.info("server ready")
 })
 
 worldState.subscribe()

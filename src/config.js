@@ -1,12 +1,26 @@
 'use strict';
 
-var path = require('path'),
-    fs = require("fs")
+var Q = require('q'),
+    C = require('spacebox-common')
+
+Q.longStackSupport = true
+
+require('./dao')
 
 module.exports = {
-    game: JSON.parse(fs.readFileSync(path.resolve(__filename, "../../configs/" + process.env.GAME_ENV + ".json"))),
-    raw_materials: JSON.parse(fs.readFileSync(path.resolve(__filename, "../../data/raw_materials.json"))),
-    public_designs: JSON.parse(fs.readFileSync(path.resolve(__filename, "../../data/public_designs.json"))),
-    design_techs: JSON.parse(fs.readFileSync(path.resolve(__filename, "../../data/design_techs.json"))),
-    tick_wait: parseInt(process.env.TICK_WAIT),
+    setName: function(name) {
+        var ctx = C.logging.create(name)
+
+        C.deepMerge({
+            ctx: ctx,
+            db: require('spacebox-common-native').db_select('api', ctx),
+            state: require('spacebox-common-native/src/redis-state')(ctx),
+
+            game: require('../configs/'+process.env.GAME_ENV),
+            raw_materials: require('../data/raw_materials'),
+            public_designs: require('../data/public_designs'),
+            design_techs: require('../data/design_techs'),
+        }, module.exports)
+    }
 }
+

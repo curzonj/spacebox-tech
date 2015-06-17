@@ -1,14 +1,13 @@
 'use strict';
 
-var Q = require('q'),
-    config = require('./config.js'),
-    db = require('spacebox-common-native').db,
-    th = require('spacebox-common/src/three_helpers.js'),
-    uuidGen = require('node-uuid'),
-    C = require('spacebox-common')
+var Q = require('q')
+var C = require('spacebox-common')
+var uuidGen = require('node-uuid')
+var th = require('spacebox-common/src/three_helpers.js')
 
-var worldState = require('spacebox-common-native/src/redis-state'),
-    config = require('./config')
+var config = require('./config')
+var worldState = config.state
+var db = config.db
 
 var self = module.exports = {
     random_position: function(l, o) {
