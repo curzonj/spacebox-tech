@@ -377,23 +377,6 @@ var self = module.exports = {
         })
     },
     router: function(app) {
-        // this is how spodb undocks vessels
-        app.post('/vessels', function(req, res) {
-            var data = req.body
-                /* = {
-                                uuid: 'uuid', // uuid may already exist, but will never be null nor undefined
-                                account: 'uuid',
-                                blueprint: 'uuid',
-                                from: { container_id, slice },
-                                modules: [],
-                                contents: []
-                            } */
-            req.ctx.old_debug('inv', data)
-
-            C.http.authorize_req(req, true).then(function(auth) {
-            }).fail(C.http.errHandler(req, res, console.log)).done()
-        })
-
         app.get('/inventory', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
                 if (auth.privileged && req.param('all') == 'true') {
