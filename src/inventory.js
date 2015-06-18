@@ -507,7 +507,7 @@ var self = module.exports = {
                                     container: dataset.from_id,
                                     account: auth.account
                                 })
-                            } else if (dest_container === null || !containerAuthorized(req.ctx, dest_container, auth.account)) {
+                            } else if (dest_container !== null && !containerAuthorized(req.ctx, dest_container, auth.account)) {
                                 throw new C.http.Error(403, "unauthorized", {
                                     container: dataset.to_id,
                                     account: auth.account
@@ -516,8 +516,9 @@ var self = module.exports = {
                                 // The vessel doesn't need to be in any particular slice, just
                                 // in the structure generally. Either one can be inside the other
                                 // for this to work
-                                (src_vessel === null || src_vessel.container_id !== dest_container.id) &&
-                                (dest_vessel === null || dest_vessel.container_id !== src_container.id)
+                                dest_container !== null &&
+                                (src_vessel.container_id !== dest_container.id) &&
+                                (dest_vessel.container_id !== src_container.id)
                             ) {
                                 throw new C.http.Error(422, "invalid_transaction", {
                                     msg: "you can only transfer between a vessel and the structure it is docked at",
