@@ -83,7 +83,7 @@
     ],
     "parameters": {
       "max_docking_size": 50,
-      "capacity": 2500,
+      "capacity": 10000,
       "maxHealth": 1000,
       "thrust": 1,
       "manuvering_thrust": 1,
