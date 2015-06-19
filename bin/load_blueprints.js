@@ -19,14 +19,8 @@ var designs = []
 db.tx(function(db) {
 return Q.all([
     Q.all(Object.keys(raw_materials).map(function(key) {
-        return db.one("insert into blueprints (id, tech, parameters, doc, is_public) values ($1, $2, $3, $4, true) returning id", [
-            key,
-            'raw_material',
-            {},
-            C.deepMerge({
-                uuid: key
-            }, raw_materials[key])
-        ])
+        return db.one("insert into blueprints (id, tech, parameters, doc, is_public) values ($1, $2, $3, $4, true) returning id",
+                      [ key, 'raw_material', {}, raw_materials[key] ])
     })),
 
     public_designs.reduce(function(next, d) {

@@ -84,11 +84,13 @@ var self = module.exports = {
 
         var doc = {
             uuid: uuid,
-            name: d.name,
             type: bp_type,
             tech: d.tech,
             tech_type: tech.type,
         }
+
+        if (is_public)
+            doc.name = d.name
 
         C.deepMerge(parameters, doc)
         C.deepMerge(tech.attributes || {}, doc)

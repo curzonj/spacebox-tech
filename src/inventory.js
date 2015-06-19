@@ -17,7 +17,7 @@ function unique_item_doc(blueprint) {
 function containerAuthorized(ctx, container, account) {
     var result = (container !== undefined && container !== null && container.account == account)
     if (!result)
-        ctx.old_debug('inv', account, 'not granted access to', container)
+        ctx.warn({ account: account, container_account: container.account }, 'container access denied')
     return result
 }
 
@@ -35,7 +35,7 @@ function buildContainerIfNeeded(ctx, uuid, account, blueprint, db) {
     if (isNaN(b.capacity) || b.capacity <= 0)
         return
 
-    ctx.old_debug('inv', "building", uuid, "for", account)
+    ctx.debug({ uuid: uuid, account: account }, 'building container')
 
     return db.inventory.insert(uuid, {
         uuid: uuid,
@@ -58,9 +58,7 @@ var self = module.exports = {
                 db.one("select * from items where id = $1 and account = $2 for update", [uuid, data.account]),
                 db.one("select * from inventories where id = $1 and account = $2 for update", [data.inventory, data.account])
             ], function(vessel, container) {
-                ctx.old_debug('inv', 'vessel', vessel)
-                ctx.old_debug('inv', 'container', container)
-                ctx.old_debug('inv', 'request', data)
+                ctx.trace({ vessel: vessel, container: container }, 'dockVessel')
 
                 if (!containerAuthorized(ctx, container, data.account)) {
                     throw new C.http.Error(403, "not_authorized", {
@@ -155,12 +153,12 @@ var self = module.exports = {
         if (newBlueprint.uuid === undefined)
             throw new Error("invalid params for inventory.updateContainer")
 
-        ctx.old_debug('inv', i)
+        ctx.trace({ container: i }, 'updateContainer:before')
 
         i.blueprint = newBlueprint.uuid
         i.limits = build_limits(b)
 
-        ctx.old_debug('inv', i)
+        ctx.trace({ container: i }, 'updateContainer:after')
 
         return db.inventory.update(container.id, container.doc)
     },
@@ -182,8 +180,7 @@ var self = module.exports = {
             return (acc + blueprints[uuid].size)
         }, container.doc.usage)
 
-        db.ctx.old_debug('inv', "updated modules", container.doc.modules)
-        db.ctx.old_debug('inv', "updated inventory", container.doc.contents)
+        db.ctx.trace({ modules: container.doc.modules, contents: container.doc.contents }, 'setModules')
 
         return db.inventory.update(container.id, container.doc, db).
         then(function() {
@@ -204,7 +201,7 @@ var self = module.exports = {
             throw new Error("invalid params for transfer: items must be an array")
         }
 
-        db.ctx.old_debug('inv', 'transfer items', items)
+        db.ctx.trace({ items: items }, 'transfer items')
 
         function default_usage_remove_calc(item) {
             src_doc.usage = src_doc.usage - (item.blueprint.size * item.quantity)
@@ -475,7 +472,6 @@ var self = module.exports = {
 
         // TODO support a schema validation
         app.post('/inventory', function(req, res) {
-            req.ctx.old_debug('inv', req.body)
             var example = {
                 from_id: 'uuid',
                 from_slice: 'default',
@@ -499,8 +495,6 @@ var self = module.exports = {
                         db.oneOrNone("select * from items where id = $1", dataset.from_id),
                         db.oneOrNone("select * from items where id = $1", dataset.to_id),
                     ], function(src_container, dest_container, src_vessel, dest_vessel) {
-                        req.ctx.old_debug('inv', 'processing transfer for', auth)
-
                         if (auth.privileged !== true) {
                             if (src_container === null || !containerAuthorized(req.ctx, src_container, auth.account)) {
                                 throw new C.http.Error(403, "unauthorized", {

@@ -84,14 +84,14 @@
       "generating_multiple": {
         "min": 1,
         "max": 10,
-        "step_size": [ [ 1, 1 ] ],
+        "step_size": [ [ 10, 1 ] ],
         "step_cost": [ [ 20, 0.5 ], [ 10, 0 ] ]
       }
     },
     "functions": {
       "generating_quantity": {
         "parameters": [ "generating_period", "generating_multiple" ],
-        "components": [ [ 100, 1, 1 ] ]
+        "components": [ [ 10, 1, 1 ] ]
       },
       "size": {
         "parameters": [ "generating_period", "generating_multiple" ],

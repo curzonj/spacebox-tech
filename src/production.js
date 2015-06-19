@@ -30,7 +30,7 @@ function fullfillResources(ctx, data, db) {
             state: 'started',
         })
 
-        ctx.old_log('build', "running " + job.uuid + " at " + job.facility)
+        ctx.info({ job_id: job.id }, 'starting job')
 
         return jobHandlers.fullfillResources(ctx, job, blueprint, container, db)
     }).then(function() {
@@ -46,7 +46,7 @@ function fullfillResources(ctx, data, db) {
             return db.none("update facilities set current_job_id = $2, trigger_at = $3, next_backoff = '1 second' where id = $1", [job.facility, data.id, finishAt.toDate()])
         })
     }).then(function() {
-        ctx.old_log('build', "fullfilled " + job.uuid + " at " + job.facility)
+        ctx.info({ job_id: job.uuid }, 'resources fullfilled')
     })
 }
 
@@ -56,7 +56,7 @@ function jobDeliveryHandling(ctx, data, db) {
 
     var timestamp = moment.unix(job.finishAt)
     if (timestamp.isAfter(moment())) {
-        ctx.old_log('build', 'received job ' + data.id + ' at ' + facility + ' early: ' + moment.unix(job.finishAt).fromNow());
+        ctx.warn({ early_diff: moment.unix(job.finishAt).fromNow(), job_id: data.id }, 'recevied job early')
         return
     }
 
@@ -68,7 +68,7 @@ function jobDeliveryHandling(ctx, data, db) {
     }).then(function() {
         return db.none("update facilities set current_job_id = null, next_backoff = '1 second', trigger_at = current_timestamp where id = $1", job.facility)
     }).then(function() {
-        ctx.old_log('build', "delivered " + job.uuid + " at " + facility)
+        ctx.info({ job_id: job.id }, 'delivered job')
 
         pubsub.publish(ctx, {
             account: job.account,
@@ -89,11 +89,11 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
             return db.jobs.nextJob(facility_id)
         }).then(function(data) {
             if (data === null) {
-                ctx.old_debug('build', "no matching jobs in " + facility_id)
+                ctx.warn({ facility_id: facility_id }, 'no jobs on triggered facility')
                 return db.none("update facilities set trigger_at = null where id = $1", facility_id)
             } else {
                 job = data
-                ctx.old_debug('build', 'job', data)
+                ctx.trace({ job: data, facility_id: facility_id }, 'processing job')
 
                 if (moment(job.trigger_at).isAfter(moment())) {
                     return db.none("update facilities set trigger_at = $2 where id = $1", [facility_id, job.trigger_at])
@@ -110,12 +110,13 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
             }
         })
     }).fail(function(e) {
-        ctx.old_log('build', "failed to handle job in", facility_id, ": " + e.toString())
-        ctx.old_log('build', e.stack)
+        ctx.error({ err: e, facility_id: facility_id, job: job }, 'failed to handle job')
 
         if (process.env.PEXIT_ON_JOB_FAIL == '1') {
-            console.log("exiting for job debugging per ENV['PEXIT_ON_JOB_FAIL']")
-            process.exit()
+            process.nextTick(function() {
+                console.log("exiting for job "+job.id+" debugging per ENV['PEXIT_ON_JOB_FAIL']")
+                process.exit()
+            })
         }
 
         if (job !== undefined && job.id !== undefined)
@@ -129,19 +130,19 @@ setInterval(function() {
 
     function build_worker_fn(ctx) {
         if (jobRoundInProgress) {
-            ctx.old_log('build', "job processing not complete, skipping round")
+            ctx.error("job processing not complete, skipping round")
             return
         }
 
         jobRoundInProgress = true;
 
-        //ctx.old_log('build', "start processing jobs")
+        ctx.trace("start processing jobs")
         var dbC = db.tracing(ctx)
 
         return dbC.facilities.needAttention().then(function(data) {
-            // Within a transaction, everything needs to be sequential
+            // Within a transaction, this needs to be sequential
             return data.reduce(function(next, facility) {
-                ctx.old_debug('build', 'facility', facility)
+                ctx.trace({ facility: facility }, 'processing facility')
 
                 if (facility.facility_type == 'generating') {
                     return next.then(function() {
@@ -154,7 +155,7 @@ setInterval(function() {
                 }
             }, Q(null))
         }).then(function() {
-            //ctx.old_log('build', 'done processing jobs')
+            ctx.trace('done processing jobs')
         }).fin(function() {
             jobRoundInProgress = false
         }).fail(function(e) {
@@ -163,9 +164,9 @@ setInterval(function() {
     }
 
     return function() {
-        return ctx.old_log_with(function(ctx) {
-                build_worker_fn(ctx)
-            }, "ts=" + moment().unix()) //, 'build')
+        return build_worker_fn(
+            ctx.child({ ts: moment().unix() })
+        )
     }
 }(), config.game.job_processing_interval)
 
@@ -202,8 +203,6 @@ var self = module.exports = {
 
         // players queue jobs
         app.post('/jobs', function(req, res) {
-            req.ctx.old_debug('build', req.body)
-
             var job = req.body
             var duration = -1
 
@@ -220,22 +219,17 @@ var self = module.exports = {
                 return Q.all([
                     auth,
                     facility,
-                    Q.fcall(function() {
-                        if (job.action !== 'refitting')
-                            return db.blueprints.get(job.blueprint)
-                    }),
                     db.blueprints.get(facility.blueprint)
                 ])
-            }).spread(function(auth, facility, blueprint, facilityType) {
+            }).spread(function(auth, facility, facilityType) {
                 job.account = auth.account
                 job.inventory_id = facility.inventory_id
-
-                if (facilityType.facility_type !== job.action)
-                    throw new C.http.Error(422, "invalid_job", {
-                        msg: "facility is unable to do that"
-                    })
+                job.action = facilityType.facility_type
 
                 return Q.fcall(function() {
+                    if (facilityType.facility_type !== 'refitting')
+                        return db.blueprints.get(job.blueprint)
+                }).then(function(blueprint) {
                     return jobHandlers.buildJob(req.ctx, job, blueprint, facilityType)
                 }).then(function() {
                     return db.jobs.queue(job)

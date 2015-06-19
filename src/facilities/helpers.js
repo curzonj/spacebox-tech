@@ -26,7 +26,7 @@ function updateInventory(action, uuid, slice, items, db) {
                 throw new Error("invalid inventory action: " + action)
         }
 
-        Q.all(items.map(function(item) {
+        return Q.all(items.map(function(item) {
             return db.blueprints.get(item.blueprint).
             then(function(blueprint) {
                 return {
@@ -38,7 +38,7 @@ function updateInventory(action, uuid, slice, items, db) {
             args.push(list, db)
         }).then(function() {
             return inventory.transfer.apply(inventory, args).tap(function() {
-                db.ctx.old_debug('build', 'contents after', action, container.doc.contents)
+                db.ctx.trace({ action: action, contents: container.doc.contents }, 'updateInventory')
             })
         })
     })
@@ -83,8 +83,7 @@ var self = module.exports = {
             return (acc - blueprint.size)
         }, target.doc.usage)
 
-        ctx.old_debug('build', "updated modules", target.doc.modules)
-        ctx.old_debug('build', "updated inventory", target.doc.contents)
+        ctx.trace({ modules: target.doc.modules, contents: target.doc.contents }, 'prepareRefit')
 
         return db.inventory.update(target.id, target.doc, db).
         then(function() {
