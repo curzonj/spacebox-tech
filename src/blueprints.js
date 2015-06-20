@@ -36,7 +36,7 @@ var self = module.exports = {
             }
         }
     },
-    updateBlueprint: function(uuid, blueprint) {
+    updateVesselBlueprint: function(uuid, blueprint) {
         var new_obj = JSON.parse(JSON.stringify(blueprint))
         new_obj.blueprint = blueprint.uuid
         delete new_obj.uuid
@@ -66,6 +66,17 @@ var self = module.exports = {
         })
 
         doc.build = self.determineBuildResources(input_params)
+    },
+    updateBlueprintDoc: function(db, row) {
+        var tech = config.design_techs[row.tech]
+
+        C.deepMerge(row.parameters, row.doc)
+        C.deepMerge(tech.attributes || {}, row.doc)
+
+        self.calculateBlueprintValues(tech, row.doc, row.parameters)
+
+        return db.none("update blueprints set doc = $2, parameters = $3 where id = $1", [ row.id, row.doc, row.parameters ])
+    
     },
     buildNewBlueprint: function(parent, parameters, is_public, native_modules) {
         var bp_type,
@@ -100,7 +111,7 @@ var self = module.exports = {
         if (native_modules !== undefined)
             doc.native_modules = native_modules
 
-        return db.one("insert into blueprints (id, tech, parameters, doc, is_public) values ($1, $2, $3, $4, $5) returning id", [
+        return db.none("insert into blueprints (id, tech, parameters, doc, is_public) values ($1, $2, $3, $4, $5)", [
             uuid,
             d.tech,
             parameters,

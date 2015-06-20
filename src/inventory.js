@@ -3,6 +3,7 @@
 var Q = require('q')
 var C = require('spacebox-common')
 var uuidGen = require('node-uuid')
+var async = require('async-q')
 
 var config = require('./config.js')
 var db = config.db
@@ -161,6 +162,32 @@ var self = module.exports = {
         ctx.trace({ container: i }, 'updateContainer:after')
 
         return db.inventory.update(container.id, container.doc)
+    },
+    recalculateCargoUsage: function(ctx, container, db) {
+        db.assertTx()
+
+        var newUsage = 0
+
+        return async.eachSeries(
+            Object.keys(container.doc.contents),
+            function(key) {
+                var slice = container.doc.contents[key]
+                return async.eachSeries(
+                    Object.keys(slice),
+                    function(key) {
+                        var count = slice[key]
+
+                        return db.blueprints.get(key).
+                        then(function(blueprint) {
+                            newUsage = newUsage + blueprint.size * count
+                        })
+                    })
+            }).
+        then(function() {
+            container.doc.usage = newUsage
+        }).then(function() {
+            return db.inventory.update(container.id, container.doc)
+        })
     },
     setModules: function(container, list, db) {
         db.assertTx()

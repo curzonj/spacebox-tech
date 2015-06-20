@@ -56,7 +56,7 @@ module.exports = {
                 return db.blueprints.get(job.blueprint).
                 then(function(blueprint) {
                     return Q.all([
-                        design_api.updateBlueprint(job.inventory_id, blueprint),
+                        design_api.updateVesselBlueprint(job.inventory_id, blueprint),
                         inventory.updateContainer(ctx, container, blueprint, db)
                     ])
                 })

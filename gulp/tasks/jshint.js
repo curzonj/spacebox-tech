@@ -9,7 +9,7 @@ var packageJSON  = require('../../package'),
 jshintConfig.lookup = false
 
 gulp.task('lint', function() {
-  return gulp.src('./src/**/*.js')
+  return gulp.src(['./src/**/*.js', './bin/*.js'])
     .pipe(jshint(jshintConfig))
     .pipe(jshint.reporter('jshint-stylish'))
 })
