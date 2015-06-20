@@ -352,15 +352,10 @@ var self = module.exports = {
             if (dest_container !== null)
                 container_id = dest_container.id
 
-            return items.reduce(function(prev, item) {
-                if (item.item !== undefined) {
-                    prev = prev.then(function() {
-                        return db.none("update items set container_id = $2, container_slice = $3 where id = $1", [item.item.id, container_id, dest_slice])
-                    })
-                }
-
-                return prev
-            }, Q(null))
+            // This is a transaction connection, so do it in series
+            return async.everySeries(items, function(item) {
+                return db.none("update items set container_id = $2, container_slice = $3 where id = $1", [item.item.id, container_id, dest_slice])
+            })
         })
     },
     getStarterData: function(ctx, uuid, account) {

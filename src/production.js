@@ -22,16 +22,7 @@ function fullfillResources(ctx, data, db) {
         db.inventory.getForUpdateOrFail(job.inventory_id, db),
         db.query("select id from facilities where id = $1 for update", job.facility)
     ]).spread(function(blueprint, container) {
-        pubsub.publish(ctx, {
-            type: 'job',
-            account: job.account,
-            uuid: job.uuid,
-            facility: job.facility,
-            state: 'started',
-        })
-
         ctx.info({ job_id: job.id }, 'starting job')
-
         return jobHandlers.fullfillResources(ctx, job, blueprint, container, db)
     }).then(function() {
         var duration = job.duration * job.quantity
@@ -46,6 +37,14 @@ function fullfillResources(ctx, data, db) {
             return db.none("update facilities set current_job_id = $2, trigger_at = $3, next_backoff = '1 second' where id = $1", [job.facility, data.id, finishAt.toDate()])
         })
     }).then(function() {
+        pubsub.publish(ctx, {
+            type: 'job',
+            account: job.account,
+            uuid: job.uuid,
+            facility: job.facility,
+            state: 'started',
+        })
+
         ctx.info({ job_id: job.uuid }, 'resources fullfilled')
     })
 }
@@ -111,6 +110,15 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
         })
     }).fail(function(e) {
         ctx.error({ err: e, facility_id: facility_id, job: job }, 'failed to handle job')
+
+        pubsub.publish(ctx, {
+            type: 'job',
+            account: job.account,
+            uuid: job.uuid,
+            facility: job.facility,
+            error: e
+        })
+
 
         if (process.env.PEXIT_ON_JOB_FAIL == '1') {
             process.nextTick(function() {

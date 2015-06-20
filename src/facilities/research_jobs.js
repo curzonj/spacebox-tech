@@ -8,6 +8,13 @@ var design_api = require('../blueprints')
 var helpers = require('./helpers')
 var config = require('../config')
 
+var example = {
+    facility: 'uuid',
+    blueprint: 'uuid',
+    parameter: 'name',
+    slice: 'name',
+}
+
 module.exports = {
     buildJob: function(ctx, job, blueprint, facilityType) {
         // TODO validate the job and the parameter
