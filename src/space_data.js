@@ -53,11 +53,12 @@ var self = module.exports = {
                 throw new Error("invalid spawn params")
             }
 
-            var obj = C.deepMerge(blueprint, {
+            var obj = {
                 solar_system: msg.solar_system,
                 account: msg.account,
                 blueprint: blueprint.uuid,
                 health: blueprint.maxHealth,
+                model_name: blueprint.model_name,
                 effects: {},
                 systems: {},
                 position: msg.position || {
@@ -76,7 +77,7 @@ var self = module.exports = {
                     z: 0,
                     w: 1
                 },
-            })
+            }
 
             // If we did it above the blueprint merge
             // would over write it

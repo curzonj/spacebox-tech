@@ -116,7 +116,7 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
             account: job.account,
             uuid: job.uuid,
             facility: job.facility,
-            error: e
+            error: e.message
         })
 
 

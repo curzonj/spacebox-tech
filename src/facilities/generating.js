@@ -54,7 +54,7 @@ module.exports = {
                             facility: uuid,
                             blueprint: blueprint.generated_resource,
                             quantity: blueprint.generating_quantity,
-                            error: e,
+                            error: e.message,
                         })
 
                         throw e
