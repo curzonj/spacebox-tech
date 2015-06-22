@@ -1,0 +1,76 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Spacebox API",
+    "description": "for spacebox",
+    "version": "1.0"
+  },
+  "produces": ["application/json", "text/plain"],
+  "host": "spacebox-tech.herokuapp.com",
+  "basePath": "/",
+  "securityDefinitions": {
+      "swagger-ui-key": {
+        "description": "This just defines what the Swagger-UI does so it has to be supported. The preferred method is to pass in the JWT token as a bearer token in the Authorization header.",
+        "name": "api_key",
+        "type": "apiKey",
+        "in": "query"
+      }
+  },
+  "security": [
+    {
+      "swagger-ui-key": []
+    }
+  ],
+  "paths": {
+    "/specs": {
+      "get": {
+        "description": "Get information about the game configuration",
+        "parameters": [],
+        "responses": {
+          "304": {
+            "description": "It's a normal empty 304, but swagger can't understand that",
+            "schema": {
+              "type": "string"
+            }
+          },
+          "200": {
+            "description": "Game data",
+            "schema": {
+              "type": "object"
+            }
+          },
+          "default": {
+            "description": "Any kind of error, not just an internal error",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "/inventory": {
+      "get": {
+        "description": "Returns all your inventories. This might change if it gets too expensive. It's not currently paginated.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "a list of inventories",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          },
+          "default": {
+            "description": "Any kind of error, not just an internal error",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {}
+}

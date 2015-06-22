@@ -119,7 +119,6 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
             error: e.message
         })
 
-
         if (process.env.PEXIT_ON_JOB_FAIL == '1') {
             process.nextTick(function() {
                 console.log("exiting for job "+job.id+" debugging per ENV['PEXIT_ON_JOB_FAIL']")
@@ -132,56 +131,47 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
     })
 }
 
-setInterval(function() {
-    var jobRoundInProgress = false
-    var ctx = config.ctx
-
-    function build_worker_fn(ctx) {
-        if (jobRoundInProgress) {
-            ctx.error("job processing not complete, skipping round")
-            return
-        }
-
-        jobRoundInProgress = true;
-
-        ctx.trace("start processing jobs")
-        var dbC = db.tracing(ctx)
-
-        return dbC.facilities.needAttention().then(function(data) {
-            // Within a transaction, this needs to be sequential
-            return data.reduce(function(next, facility) {
-                ctx.trace({ facility: facility }, 'processing facility')
-
-                if (facility.facility_type == 'generating') {
-                    return next.then(function() {
-                        return generating.checkAndDeliverResources(ctx, facility.id, dbC)
-                    })
-                } else {
-                    return next.then(function() {
-                        return checkAndProcessFacilityJob(ctx, facility.id, dbC)
-                    })
-                }
-            }, Q(null))
-        }).then(function() {
-            ctx.trace('done processing jobs')
-        }).fin(function() {
-            jobRoundInProgress = false
-        }).fail(function(e) {
-            throw e
-        }).done()
-    }
-
-    return function() {
-        return build_worker_fn(
-            ctx.child({ ts: moment().unix() })
-        )
-    }
-}(), config.game.job_processing_interval)
-
 var prod_dep = require('./production_dep.js')
 var self = module.exports = {
     updateFacilities: prod_dep.updateFacilities,
     destroyFacility: prod_dep.destroyFacility,
+    build_worker_fn: function() {
+        var jobRoundInProgress = false
+
+        return function() {
+            var ctx = config.ctx.child({ ts: moment().unix() })
+            if (jobRoundInProgress) {
+                ctx.error("job processing not complete, skipping round")
+                return
+            }
+
+            jobRoundInProgress = true;
+
+            ctx.trace("start processing jobs")
+            var dbC = db.tracing(ctx)
+
+            return dbC.facilities.needAttention().then(function(data) {
+                // Within a transaction, this needs to be sequential
+                return data.reduce(function(next, facility) {
+                    ctx.trace({ facility: facility }, 'processing facility')
+
+                    if (facility.facility_type == 'generating') {
+                        return next.then(function() {
+                            return generating.checkAndDeliverResources(ctx, facility.id, dbC)
+                        })
+                    } else {
+                        return next.then(function() {
+                            return checkAndProcessFacilityJob(ctx, facility.id, dbC)
+                        })
+                    }
+                }, Q(null))
+            }).then(function() {
+                ctx.trace('done processing jobs')
+            }).fin(function() {
+                jobRoundInProgress = false
+            }).done()
+        }
+    }(),
     router: function(app) {
         app.get('/jobs/:uuid', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
@@ -217,6 +207,9 @@ var self = module.exports = {
             job.uuid = uuidGen.v1()
 
             Q.spread([C.http.authorize_req(req), db.facilities.get(job.facility)], function(auth, facility) {
+                if (facility.facility_type !== job.action)
+                    throw new C.http.Error(422, "job action must match facility")
+
                 // Must wait until we have the auth response to check authorization
                 // TODO come up with a better means of authorization
                 if (facility.account != auth.account)

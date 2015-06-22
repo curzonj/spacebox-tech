@@ -234,7 +234,7 @@ var self = module.exports = {
             src_doc.usage = src_doc.usage - (item.blueprint.size * item.quantity)
 
             if (isNaN(src_doc.usage))
-                throw new Error("this item broke the inventory transfer" + JSON.stringify(item))
+                throw new Error("this item broke the inventory transfer: " + JSON.stringify(item))
         }
 
         if (src_container !== null) {
@@ -353,8 +353,10 @@ var self = module.exports = {
                 container_id = dest_container.id
 
             // This is a transaction connection, so do it in series
-            return async.everySeries(items, function(item) {
-                return db.none("update items set container_id = $2, container_slice = $3 where id = $1", [item.item.id, container_id, dest_slice])
+            return async.eachSeries(items, function(item) {
+                if (item.item !== undefined) {
+                    return db.none("update items set container_id = $2, container_slice = $3 where id = $1", [item.item.id, container_id, dest_slice])
+                }
             })
         })
     },

@@ -6,8 +6,9 @@ var C = require('spacebox-common')
 var config = require('../config')
 config.setName('worker')
 
-var solarsystems = require('../solar_systems.js')
-var production = require('../production_dep.js')
+var solarsystems = require('../solar_systems')
+var production_dep = require('../production_dep')
+var production = require('../production')
 var ctx = config.ctx
 var db = config.db
 var worldState = config.state
@@ -19,7 +20,7 @@ function destroyVessel(ctx, uuid) {
             return db.any("select * from facilities where inventory_id = $1", uuid)
         }).then(function(list) {
             return Q.all(list.map(function(facility) {
-                return production.destroyFacility(facility, db)
+                return production_dep.destroyFacility(facility, db)
             }))
         }).then(function() {
             return db.inventory.destroy(uuid, db)
@@ -40,9 +41,8 @@ worldState.events.on('worldtick', function(msg, deleted) {
     })
 })
 
-setInterval(function() {
-    solarsystems.checkWormholeTTL(ctx)
-}, 60000)
+setInterval(production.build_worker_fn, config.game.job_processing_interval)
+setInterval(solarsystems.checkWormholeTTL, 60000)
 
 worldState.subscribe()
 solarsystems.ensurePoolSize().done()

@@ -37,7 +37,7 @@ module.exports = {
         return db.blueprints.getFull(job.blueprint).
         then(function(row) {
             var blueprint = row.doc,
-                tech = design_api.techs_data[blueprint.tech]
+                tech = config.design_techs[blueprint.tech]
             
             var step_size = Math.floor(C.calc_poly({
                 parameters: [ "value" ],

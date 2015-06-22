@@ -60,7 +60,8 @@ var self = {
     whenIsReady: function() {
         return self.ensurePoolSize()
     },
-    checkWormholeTTL: function(ctx) {
+    checkWormholeTTL: function() {
+        var ctx = config.ctx
         ctx.debug("checking expired wormholes")
 
         db.query("select * from wormholes where expires_at < current_timestamp").

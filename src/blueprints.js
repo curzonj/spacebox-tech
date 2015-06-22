@@ -124,7 +124,7 @@ var self = module.exports = {
     router: function(app) {
         app.get('/techs/:name', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
-                var tech = self.techs_dat[req.param('name')]
+                var tech = config.design_techs[req.param('name')]
                 if (tech === undefined)
                     return res.sendStatus(404)
 
