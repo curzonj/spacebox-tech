@@ -33,8 +33,11 @@ function destroyVessel(ctx, uuid) {
 worldState.events.on('worldtick', function(msg, deleted) {
     Object.keys(msg.changes).forEach(function(uuid) {
         var patch = msg.changes[uuid]
+        ctx.trace({ patch: patch }, "received")
+        console.log(patch)
         if (patch.tombstone === true && (patch.tombstone_cause === 'destroyed' || patch.tombstone_cause === 'despawned')) {
             var old = deleted[uuid]
+            ctx.trace({ deleted: old }, 'full tombstone object')
             if (old.type == 'vessel')
                 destroyVessel(ctx, uuid).done()
         }

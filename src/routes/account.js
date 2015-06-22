@@ -23,9 +23,9 @@ module.exports = function(app) {
                         tombstone: true
                     })
                 }))
-            }).then(function(data) {
+            }).then(function() {
                 res.send({
-                    result: data
+                    result: true
                 })
             })
         }).fail(C.http.errHandler(req, res, console.log)).done()

@@ -2,7 +2,6 @@
 
 var http = require("http")
 var express = require("express")
-var bodyParser = require('body-parser')
 var uuidGen = require('node-uuid')
 var Q = require('q')
 var WTF = require('wtf-shim')
@@ -99,8 +98,16 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
     app.use(function(err, req, res, next) {
         if (err) {
             var dats = { err: err }
-            if (err.originalResponse)
-                dats.originalResponse = err.originalResponse
+            if (err.originalResponse) {
+                if (err.originalResponse instanceof Buffer) {
+                    dats.originalResponse = err.originalResponse.toString()
+                } else {
+                    dats.originalResponse = err.originalResponse
+                }
+            }
+            if (err.results) {
+                dats.results = err.results
+            }
 
             req.ctx.error(dats, 'http error')
 

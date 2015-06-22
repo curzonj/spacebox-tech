@@ -8,6 +8,12 @@
   "produces": ["application/json", "text/plain"],
   "host": "spacebox-tech.herokuapp.com",
   "basePath": "/",
+  "definitions": {
+    "uuid": {
+      "type": "string",
+      "pattern" : "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    }
+  },
   "securityDefinitions": {
       "swagger-ui-key": {
         "description": "This just defines what the Swagger-UI does so it has to be supported. The preferred method is to pass in the JWT token as a bearer token in the Authorization header.",
@@ -21,28 +27,74 @@
       "swagger-ui-key": []
     }
   ],
+  "responses": {
+    "Error": {
+      "description": "Any kind of error, not just an internal error",
+      "schema": {
+        "type": "object"
+      }
+    },
+    "NotModified": {
+      "description": "It's a normal empty 304, but swagger can't understand that",
+      "schema": {
+        "type": "string"
+      }
+    }
+  },
   "paths": {
     "/specs": {
       "get": {
         "description": "Get information about the game configuration",
         "parameters": [],
         "responses": {
-          "304": {
-            "description": "It's a normal empty 304, but swagger can't understand that",
-            "schema": {
-              "type": "string"
-            }
-          },
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/NotModified" },
           "200": {
             "description": "Game data",
             "schema": {
               "type": "object"
             }
-          },
-          "default": {
-            "description": "Any kind of error, not just an internal error",
+          }
+        }
+      }
+    },
+    "/commands/spawnStarter": {
+      "post": {
+        "description": "spawns a starter ship, only works if you have no game assets",
+        "parameters": [],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
             "schema": {
-              "type": "object"
+              "type": "object",
+              "properties": {
+                "result": {
+                  "description": "the uuid of the starter ship",
+                  "$ref": "#/definitions/uuid"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/commands/resetAccount": {
+      "post": {
+        "description": "resets your account",
+        "parameters": [],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "boolean",
+                  "enum": [ true ]
+                }
+              }
             }
           }
         }
@@ -53,6 +105,8 @@
         "description": "Returns all your inventories. This might change if it gets too expensive. It's not currently paginated.",
         "parameters": [],
         "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/NotModified" },
           "200": {
             "description": "a list of inventories",
             "schema": {
@@ -61,16 +115,9 @@
                 "type": "object"
               }
             }
-          },
-          "default": {
-            "description": "Any kind of error, not just an internal error",
-            "schema": {
-              "type": "object"
-            }
           }
         }
       }
     }
-  },
-  "definitions": {}
+  }
 }

@@ -54,6 +54,7 @@ var self = module.exports = {
             }
 
             var obj = {
+                type: blueprint.type,
                 solar_system: msg.solar_system,
                 account: msg.account,
                 blueprint: blueprint.uuid,
