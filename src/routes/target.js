@@ -13,7 +13,7 @@ function validateSubjectTarget(ctx, subject, target, auth) {
     } else if (target === null || target === undefined) {
         throw new Error("no such target")
     } else if (target.solar_system !== subject.solar_system) {
-        throw new Error("")
+        throw new Error("target not in range")
     }
 }
 
@@ -39,11 +39,14 @@ module.exports = function(app) {
         ], function(auth, ship, target) {
             validateSubjectTarget(req.ctx, ship, target, auth)
 
+            if (ship.systems.weapon === undefined)
+                throw new Error("that vessel has no weapons")
+
             setState(ship, 'weapon', 'shoot', {
                 target: msg.target
-            }).then(function(data) {
+            }).then(function() {
                 res.json({
-                    result: data
+                    result: true
                 })
             })
         }).fail(C.http.errHandler(req, res, console.log)).done()

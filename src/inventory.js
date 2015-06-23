@@ -300,7 +300,7 @@ var self = module.exports = {
 
             items.forEach(function(item) {
                 if (item.item !== undefined) {
-                    console.log("trying to dock", item.blueprint, dest_doc.limits)
+                    db.ctx.trace({ blueprint: item.blueprint, limits: dest_doc.limits }, 'handling an item')
                         // TODO how do we scoop something that is larger than it's
                         // capacity?
                     if (item.blueprint.type == 'vessel' && (

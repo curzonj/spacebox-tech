@@ -21,6 +21,40 @@
         }
       }
     },
+    "unpackItemParameters": {
+      "type": "object",
+      "properties": {
+        "inventory": {
+          "description": "the uuid of the container to unpack the item in",
+          "$ref": "#/definitions/uuid"
+        },
+        "blueprint": {
+          "description": "the uuid of the blueprint to unpack",
+          "$ref": "#/definitions/uuid"
+        },
+        "slice": {
+          "description": "the slice to unpack the item in",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "required": [ "inventory", "blueprint", "slice" ]
+    
+    },
+    "shootingParameters": {
+      "type": "object",
+      "properties": {
+        "vessel": {
+          "description": "the uuid of the ship to shoot from",
+          "$ref": "#/definitions/uuid"
+        },
+        "target": {
+          "description": "the uuid of the target to shoot",
+          "$ref": "#/definitions/uuid"
+        }
+      },
+      "required": [ "vessel", "target" ]
+    },
     "transferParameters": {
       "type": "object",
       "properties": {
@@ -251,6 +285,69 @@
     }
   },
   "paths": {
+    "/items": {
+      "post": {
+        "tags": [ "inventory" ],
+        "description": "Unpack a ship to make a unique ship",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters as json",
+            "schema": {
+              "$ref": "#/definitions/unpackItemParameters"
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "description": "the uuid of the new vessel",
+                  "$ref": "#/definitions/uuid"
+                }
+              }
+            }
+          }
+        }
+      }
+    
+    },
+    "/commands/shoot": {
+      "post": {
+        "tags": [ "spaceObjects" ],
+        "description": "Tell a vessel to shoot a target until it's destroyed",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters as json",
+            "schema": {
+              "$ref": "#/definitions/shootingParameters"
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "boolean",
+                  "enum": [ true ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/commands/deploy": {
       "post": {
         "tags": [ "spaceObjects" ],
@@ -281,7 +378,6 @@
           }
         }
       }
-    
     },
     "/facilities": {
       "get": {
@@ -641,7 +737,7 @@
     },
     "/commands/spawnStarter": {
       "post": {
-        "tags": [ "commands", "spaceObjects" ],
+        "tags": [ "spaceObjects" ],
         "description": "spawns a starter ship, only works if you have no game assets",
         "parameters": [],
         "responses": {
@@ -663,8 +759,8 @@
     },
     "/commands/resetAccount": {
       "post": {
-        "tags": [ "commands", "spaceObjects" ],
-        "description": "resets your account",
+        "tags": [ "spaceObjects" ],
+        "description": "If you've played with stuff before, you may want to reset your account to wipe it clean. This will delete any ships, structures, inventories, etc in the game universe on your account.",
         "parameters": [],
         "responses": {
           "default": { "$ref": "#/responses/Error" },
