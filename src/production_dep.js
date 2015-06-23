@@ -11,15 +11,15 @@ var pubsub = require('./pubsub')
 // prod -> inv -> prod_dep
 var self = module.exports = {
     destroyFacility: function(facility, db) {
-        pubsub.publish(db.ctx, {
+        return pubsub.publish(db.ctx, {
             type: 'facility',
             account: facility.account,
             tombstone: true,
             uuid: facility.id,
             blueprint: facility.blueprint,
+        }).then(function() {
+            return db.none("delete from facilities where id=$1", facility.id)
         })
-
-        return db.none("delete from facilities where id=$1", facility.id)
     },
     updateFacilities: function(uuid, db) {
         db.assertTx()
@@ -82,7 +82,7 @@ var self = module.exports = {
                     }))
                 ])
             }).then(function(changes) {
-                pubsub.publish(db.ctx, {
+                return pubsub.publish(db.ctx, {
                     type: 'facilities',
                     account: container.account,
                     inventory: uuid,

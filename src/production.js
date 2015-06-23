@@ -37,15 +37,15 @@ function fullfillResources(ctx, data, db) {
             return db.none("update facilities set current_job_id = $2, trigger_at = $3, next_backoff = '1 second' where id = $1", [job.facility, data.id, finishAt.toDate()])
         })
     }).then(function() {
-        pubsub.publish(ctx, {
+        ctx.info({ job_id: job.uuid }, 'resources fullfilled')
+
+        return pubsub.publish(ctx, {
             type: 'job',
             account: job.account,
             uuid: job.uuid,
             facility: job.facility,
             state: 'started',
         })
-
-        ctx.info({ job_id: job.uuid }, 'resources fullfilled')
     })
 }
 
@@ -69,7 +69,7 @@ function jobDeliveryHandling(ctx, data, db) {
     }).then(function() {
         ctx.info({ job_id: job.id }, 'delivered job')
 
-        pubsub.publish(ctx, {
+        return pubsub.publish(ctx, {
             account: job.account,
             type: 'job',
             uuid: job.uuid,
@@ -111,23 +111,23 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
     }).fail(function(e) {
         ctx.error({ err: e, facility_id: facility_id, job: job }, 'failed to handle job')
 
-        pubsub.publish(ctx, {
+        return pubsub.publish(ctx, {
             type: 'job',
             account: job.account,
             uuid: job.uuid,
             facility: job.facility,
             error: e.message
+        }).then(function() {
+            if (process.env.PEXIT_ON_JOB_FAIL == '1') {
+                process.nextTick(function() {
+                    console.log("exiting for job "+job.id+" debugging per ENV['PEXIT_ON_JOB_FAIL']")
+                    process.exit()
+                })
+            }
+
+            if (job !== undefined && job.id !== undefined)
+                return db.jobs.incrementBackoff(job.id)
         })
-
-        if (process.env.PEXIT_ON_JOB_FAIL == '1') {
-            process.nextTick(function() {
-                console.log("exiting for job "+job.id+" debugging per ENV['PEXIT_ON_JOB_FAIL']")
-                process.exit()
-            })
-        }
-
-        if (job !== undefined && job.id !== undefined)
-            return db.jobs.incrementBackoff(job.id)
     })
 }
 
@@ -201,13 +201,21 @@ var self = module.exports = {
 
         // players queue jobs
         app.post('/jobs', function(req, res) {
+            handleJobs(req.body.action, req, res)
+        })
+
+        app.post('/jobs/:action_name', function(req, res) {
+            handleJobs(req.params.action_name, req, res)
+        })
+
+        function handleJobs(job_action, req, res) {
             var job = req.body
             var duration = -1
 
             job.uuid = uuidGen.v1()
 
             Q.spread([C.http.authorize_req(req), db.facilities.get(job.facility)], function(auth, facility) {
-                if (facility.facility_type !== job.action)
+                if (facility.facility_type !== job_action)
                     throw new C.http.Error(422, "job action must match facility")
 
                 // Must wait until we have the auth response to check authorization
@@ -244,7 +252,7 @@ var self = module.exports = {
                     })
                 })
             }).fail(C.http.errHandler(req, res, console.log)).done()
-        })
+        }
 
         app.post('/facilities', function(req, res) {
             var uuid = req.param('container_id')

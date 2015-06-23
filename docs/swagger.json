@@ -12,6 +12,30 @@
     "uuid": {
       "type": "string",
       "pattern" : "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "manufacturingJob": {
+      "type": "object",
+      "properties": {
+        "facility": {
+          "description": "the uuid of the facility run the job in",
+          "$ref": "#/definitions/uuid"
+        },
+        "blueprint": {
+          "description": "the uuid of the blueprint to manufacture",
+          "$ref": "#/definitions/uuid"
+        },
+        "quantity": {
+          "description": "how many of the items you want to build",
+          "type": "integer",
+          "default": 1
+        },
+        "slice": {
+          "description": "the name of the container slice to take resources from and put the final result in. Normally you just put `default`",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "required": [ "facility", "blueprint", "quantity", "slice" ]
     }
   },
   "securityDefinitions": {
@@ -31,7 +55,12 @@
     "Error": {
       "description": "Any kind of error, not just an internal error",
       "schema": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "errorDetails": {
+            "description": "this really should be rationalized but atm, it could be a string OR an object. Swagger doesn't support this as a schema so it's left undefined"
+          }
+        }
       }
     },
     "NotModified": {
@@ -39,9 +68,193 @@
       "schema": {
         "type": "string"
       }
+    },
+    "NotFound": {
+      "description": "Couldn't find something you specified",
+      "schema": {
+        "type": "string"
+      }
     }
   },
   "paths": {
+    "/facilities": {
+      "get": {
+        "tags": [ "jobs" ],
+        "description": "get a list of all your facilities that you can run jobs in",
+        "parameters": [],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/NotModified" },
+          "200": {
+            "description": "Facilities",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "post": {
+        "deprecated": true,
+        "tags": [ "jobs" ],
+        "description": "start a job",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters to the job as json",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "facility": {
+                  "description": "the uuid of the facility run the job in",
+                  "$ref": "#/definitions/uuid"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [ "construction", "refining", "refitting", "research" ]
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "job": {
+                  "type": "object",
+                  "properties": {
+                    "uuid": {
+                      "description": "the uuid of the job",
+                      "$ref": "#/definitions/uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/manufacturing": {
+      "post": {
+        "tags": [ "jobs" ],
+        "description": "start a manufacturing job",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters to the job as json",
+            "schema": {
+              "$ref": "#/definitions/manufacturingJob"
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "job": {
+                  "type": "object",
+                  "properties": {
+                    "uuid": {
+                      "description": "the uuid of the job",
+                      "$ref": "#/definitions/uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/techs/{name}": {
+      "get": {
+        "tags": [ "blueprints" ],
+        "description": "return the details for the given technology",
+        "parameters": [
+          {
+            "name": "name",
+            "description": "the name of the technology",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/NotModified" },
+          "404": { "$ref": "#/responses/NotFound" },
+          "200": {
+            "description": "A blueprint",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "/blueprints/{uuid}": {
+      "get": {
+        "tags": [ "blueprints" ],
+        "description": "get a specific blueprint you have access to",
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "the uuid of the blueprint you want",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/NotModified" },
+          "404": { "$ref": "#/responses/NotFound" },
+          "200": {
+            "description": "A blueprint",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "uuid": {
+                  "$ref": "#/definitions/uuid"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/blueprints": {
+      "get": {
+        "tags": [ "blueprints" ],
+        "description": "Get all the blueprints you have access to.",
+        "parameters": [],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/NotModified" },
+          "200": {
+            "description": "Blueprints",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
     "/specs": {
       "get": {
         "description": "Get information about the game configuration",
@@ -60,6 +273,7 @@
     },
     "/commands/spawnStarter": {
       "post": {
+        "tags": [ "commands", "spaceObjects" ],
         "description": "spawns a starter ship, only works if you have no game assets",
         "parameters": [],
         "responses": {
@@ -81,6 +295,7 @@
     },
     "/commands/resetAccount": {
       "post": {
+        "tags": [ "commands", "spaceObjects" ],
         "description": "resets your account",
         "parameters": [],
         "responses": {
@@ -102,6 +317,7 @@
     },
     "/inventory": {
       "get": {
+        "tags": [ "inventory" ],
         "description": "Returns all your inventories. This might change if it gets too expensive. It's not currently paginated.",
         "parameters": [],
         "responses": {

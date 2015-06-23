@@ -43,10 +43,10 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
         "swagger-ui-key": function (req, def, api_key, callback) {
             if (api_key) {
                 req.headers.authorization = "Bearer " +api_key
-            }
 
-            // Ideally in the future endpoints just look for auth here
-            req.auth = C.http.authorize_token(api_key, false)
+                // Ideally in the future endpoints just look for auth here
+                req.auth = C.http.authorize_token(api_key, false)
+            }
 
             callback()
         }
@@ -98,6 +98,10 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
     app.use(function(err, req, res, next) {
         if (err) {
             var dats = { err: err }
+            var json = {
+                errorDetails: err.toString()
+            }
+
             if (err.originalResponse) {
                 if (err.originalResponse instanceof Buffer) {
                     dats.originalResponse = err.originalResponse.toString()
@@ -106,14 +110,13 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
                 }
             }
             if (err.results) {
+                json.validation = err.results
                 dats.results = err.results
             }
 
             req.ctx.error(dats, 'http error')
 
-            res.status(500).json({
-                errorDetails: err.toString()
-            })
+            res.status(500).json(json)
         }
 
         // By not returning the err we show we've handled it
@@ -128,9 +131,6 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
         // TODO implement this configurably
         //server.timeout = 5000
         server.listen(port)
-
-        require('./pubsub.js').setup_websockets(server)
-
         config.ctx.info("server ready")
     })
 

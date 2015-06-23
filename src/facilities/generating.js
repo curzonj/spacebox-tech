@@ -36,28 +36,28 @@ module.exports = {
                         quantity: blueprint.generating_quantity
                     }], db).
                     then(function() {
-                        pubsub.publish(ctx, {
+                        return pubsub.publish(ctx, {
                             type: 'resources',
                             account: facility.account,
                             facility: uuid,
                             blueprint: blueprint.generated_resource,
                             quantity: blueprint.generating_quantity,
                             state: 'delivered'
+                        }).then(function() {
+                            facility.doc.resources_checked_at = moment()
+                            return db.query("update facilities set trigger_at = $2, next_backoff = '1 second', doc = $3 where id = $1", [uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc])
                         })
-
-                        facility.doc.resources_checked_at = moment()
-                        return db.query("update facilities set trigger_at = $2, next_backoff = '1 second', doc = $3 where id = $1", [uuid, moment().add(blueprint.generating_period, 'm').toDate(), facility.doc])
                     }).fail(function(e) {
-                        pubsub.publish(ctx, {
+                        return pubsub.publish(ctx, {
                             type: 'resources',
                             account: facility.account,
                             facility: uuid,
                             blueprint: blueprint.generated_resource,
                             quantity: blueprint.generating_quantity,
                             error: e.message,
+                        }).then(function() {
+                            throw e // get the message out and then propogate the error
                         })
-
-                        throw e
                     })
                 } else {
                     ctx.old_log('build', uuid + " is waiting for " + moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').diff(moment()))
