@@ -782,7 +782,7 @@
     "/inventory/{uuid}": {
       "get": {
         "tags": [ "inventory" ],
-        "description": "get a specific inventory you have access to. this one will include a list of all the unique items in the inventory also.",
+        "description": "get a specific container you have access to. this one will include a list of all the unique items in the container also.",
         "parameters": [
           {
             "name": "uuid",
