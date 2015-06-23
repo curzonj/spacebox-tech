@@ -90,6 +90,107 @@
       },
       "required": [ "container_id", "slice", "blueprint" ]
     },
+    "refittingJob": {
+      "type": "object",
+      "properties": {
+        "facility": {
+          "description": "the uuid of the facility run the job in",
+          "$ref": "#/definitions/uuid"
+        },
+        "target": {
+          "description": "the uuid of the ship to change the modules on",
+          "$ref": "#/definitions/uuid"
+        },
+        "modules": {
+          "description": "modules already installed will remain in place, and modules installed not in this list will be removed and placed in inventory. New modules not yet install will be fetched from the inventory",
+          "type": "array",
+          "items": {
+            "description": "A uuid of a module to install",
+            "$ref": "#/definitions/uuid"
+          }
+        },
+        "slice": {
+          "description": "the name of the container slice to take resources from and put the final result in. Normally you just put `default`",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "required": [ "facility", "target", "modules", "slice" ]
+    },
+    "constructionJob": {
+      "type": "object",
+      "properties": {
+        "facility": {
+          "description": "the uuid of the facility run the job in",
+          "$ref": "#/definitions/uuid"
+        },
+        "blueprint": {
+          "description": "the uuid of the blueprint you want to remodel the structure into. If you don't want to remodel the structure, specify it's current blueprint uuid",
+          "$ref": "#/definitions/uuid"
+        },
+        "modules": {
+          "description": "modules already installed will remain in place, and modules installed not in this list will be removed and placed in inventory. New modules not yet install will be fetched from the inventory",
+          "type": "array",
+          "items": {
+            "description": "A uuid of a module to install",
+            "$ref": "#/definitions/uuid"
+          }
+        },
+        "slice": {
+          "description": "the name of the container slice to take resources from and put the final result in. Normally you just put `default`",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "required": [ "facility", "blueprint", "slice" ]
+    },
+    "refiningJob": {
+      "type": "object",
+      "properties": {
+        "facility": {
+          "description": "the uuid of the facility run the job in",
+          "$ref": "#/definitions/uuid"
+        },
+        "blueprint": {
+          "description": "the uuid of the blueprint of the items you want to refine",
+          "$ref": "#/definitions/uuid"
+        },
+        "quantity": {
+          "description": "how many of the items you want to build",
+          "type": "integer",
+          "default": 1
+        },
+        "slice": {
+          "description": "the name of the container slice to take resources from and put the final result in. Normally you just put `default`",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "required": [ "facility", "blueprint", "quantity", "slice" ]
+    },
+    "researchJob": {
+      "type": "object",
+      "properties": {
+        "facility": {
+          "description": "the uuid of the facility run the job in",
+          "$ref": "#/definitions/uuid"
+        },
+        "blueprint": {
+          "description": "the uuid of the blueprint to research",
+          "$ref": "#/definitions/uuid"
+        },
+        "parameter": {
+          "description": "the name of the parameter that you want to improve",
+          "type": "string"
+        },
+        "slice": {
+          "description": "the name of the container slice to take resources from. Normally you just put `default`",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "required": [ "facility", "blueprint", "parameter", "slice" ]
+    },
     "manufacturingJob": {
       "type": "object",
       "properties": {
@@ -242,6 +343,150 @@
                   "enum": [ "construction", "refining", "refitting", "research", "manufacturing" ]
                 }
               }
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "job": {
+                  "type": "object",
+                  "properties": {
+                    "uuid": {
+                      "description": "the uuid of the job",
+                      "$ref": "#/definitions/uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/construction": {
+      "post": {
+        "tags": [ "jobs" ],
+        "description": "start a construction job",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters to the job as json",
+            "schema": {
+              "$ref": "#/definitions/constructionJob"
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "job": {
+                  "type": "object",
+                  "properties": {
+                    "uuid": {
+                      "description": "the uuid of the job",
+                      "$ref": "#/definitions/uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/refitting": {
+      "post": {
+        "tags": [ "jobs" ],
+        "description": "start a refitting job",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters to the job as json",
+            "schema": {
+              "$ref": "#/definitions/refittingJob"
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "job": {
+                  "type": "object",
+                  "properties": {
+                    "uuid": {
+                      "description": "the uuid of the job",
+                      "$ref": "#/definitions/uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/refining": {
+      "post": {
+        "tags": [ "jobs" ],
+        "description": "start a refining job",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters to the job as json",
+            "schema": {
+              "$ref": "#/definitions/refiningJob"
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "job": {
+                  "type": "object",
+                  "properties": {
+                    "uuid": {
+                      "description": "the uuid of the job",
+                      "$ref": "#/definitions/uuid"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/research": {
+      "post": {
+        "tags": [ "jobs" ],
+        "description": "start a research job. When the job completes you'll have a new blueprint in your list",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters to the job as json",
+            "schema": {
+              "$ref": "#/definitions/researchJob"
             }
           }
         ],

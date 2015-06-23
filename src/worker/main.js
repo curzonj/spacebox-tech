@@ -33,7 +33,6 @@ function destroyVessel(ctx, uuid) {
 worldState.events.on('worldtick', function(msg, deleted) {
     Object.keys(msg.changes).forEach(function(uuid) {
         var patch = msg.changes[uuid]
-        console.log(patch)
         if (patch.tombstone === true && (patch.tombstone_cause === 'destroyed' || patch.tombstone_cause === 'despawned')) {
             var old = deleted[uuid]
             if (old.type == 'vessel')
