@@ -21,6 +21,75 @@
         }
       }
     },
+    "transferParameters": {
+      "type": "object",
+      "properties": {
+        "from_id": {
+          "description": "the uuid of the inventory to transfer from",
+          "$ref": "#/definitions/uuid"
+        },
+        "from_slice": {
+          "description": "the slice to transfer from",
+          "type": "string",
+          "default": "default"
+        },
+        "to_id": {
+          "description": "the uuid of the inventory to transfer to",
+          "$ref": "#/definitions/uuid"
+        },
+        "to_slice": {
+          "description": "the slice to transfer to",
+          "type": "string",
+          "default": "default"
+        },
+        "items": {
+          "description": "A list of types OR items to transfer. Types need the `blueprint` and `quantity` fields, items need the `item_uuid` field.",
+          "type": "array",
+          "items": {
+            "description": "either set `blueprint` and `quantity`, or set `item_uuid`",
+            "type": "object",
+            "properties": {
+              "blueprint": {
+                "description": "the uuid of a blueprint for the type of non-unique items you want to transfer",
+                "$ref": "#/definitions/uuid"
+              },
+              "quantity": {
+                "description": "the number of items of the given blueprint to transfer",
+                "type": "number"
+              },
+              "item_uuid": {
+                "description": "the uuid of a unique item to transfer",
+                "$ref": "#/definitions/uuid"
+              }
+            }
+          }
+        }
+      },
+      "required": [ "items" ]
+    },
+    "deployParameters": {
+      "type": "object",
+      "properties": {
+        "container_id": {
+          "description": "the uuid of the inventory to deploy from",
+          "$ref": "#/definitions/uuid"
+        },
+        "slice": {
+          "description": "the slice to deploy from",
+          "type": "string",
+          "default": "default"
+        },
+        "blueprint": {
+          "description": "the uuid of the blueprint to deploy an item of",
+          "$ref": "#/definitions/uuid"
+        },
+        "vessel_uuid": {
+          "description": "the uuid of vessel to deploy if a specific one already exists",
+          "$ref": "#/definitions/uuid"
+        }
+      },
+      "required": [ "container_id", "slice", "blueprint" ]
+    },
     "manufacturingJob": {
       "type": "object",
       "properties": {
@@ -66,10 +135,11 @@
         "$ref": "#/definitions/responseError"
       }
     },
-    "NotModified": {
-      "description": "It's a normal empty 304, but swagger can't understand that",
+    "Empty": {
+      "description": "It's a normal empty response, but swagger can't understand that",
       "schema": {
-        "type": "string"
+        "type": "string",
+        "enum": [ "" ]
       }
     },
     "NotFound": {
@@ -80,6 +150,38 @@
     }
   },
   "paths": {
+    "/commands/deploy": {
+      "post": {
+        "tags": [ "spaceObjects" ],
+        "description": "deploy a vessel from inventory to space",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters as json",
+            "schema": {
+              "$ref": "#/definitions/deployParameters"
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "description": "the uuid of the new vessel",
+                  "$ref": "#/definitions/uuid"
+                }
+              }
+            }
+          }
+        }
+      }
+    
+    },
     "/facilities": {
       "get": {
         "tags": [ "jobs" ],
@@ -87,7 +189,7 @@
         "parameters": [],
         "responses": {
           "default": { "$ref": "#/responses/Error" },
-          "304": { "$ref": "#/responses/NotModified" },
+          "304": { "$ref": "#/responses/Empty" },
           "200": {
             "description": "Facilities",
             "schema": {
@@ -101,6 +203,24 @@
       }
     },
     "/jobs": {
+      "get": {
+        "tags": [ "jobs" ],
+        "description": "get a list of all your jobs, past and present. There is no garbage collection yet",
+        "parameters": [],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/Empty" },
+          "200": {
+            "description": "Jobs",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
       "post": {
         "deprecated": true,
         "tags": [ "jobs" ],
@@ -119,7 +239,7 @@
                 },
                 "action": {
                   "type": "string",
-                  "enum": [ "construction", "refining", "refitting", "research" ]
+                  "enum": [ "construction", "refining", "refitting", "research", "manufacturing" ]
                 }
               }
             }
@@ -198,7 +318,7 @@
         ],
         "responses": {
           "default": { "$ref": "#/responses/Error" },
-          "304": { "$ref": "#/responses/NotModified" },
+          "304": { "$ref": "#/responses/Empty" },
           "404": { "$ref": "#/responses/NotFound" },
           "200": {
             "description": "A blueprint",
@@ -225,7 +345,7 @@
         ],
         "responses": {
           "default": { "$ref": "#/responses/Error" },
-          "304": { "$ref": "#/responses/NotModified" },
+          "304": { "$ref": "#/responses/Empty" },
           "404": { "$ref": "#/responses/NotFound" },
           "200": {
             "description": "A blueprint",
@@ -248,7 +368,7 @@
         "parameters": [],
         "responses": {
           "default": { "$ref": "#/responses/Error" },
-          "304": { "$ref": "#/responses/NotModified" },
+          "304": { "$ref": "#/responses/Empty" },
           "200": {
             "description": "Blueprints",
             "schema": {
@@ -264,7 +384,7 @@
         "parameters": [],
         "responses": {
           "default": { "$ref": "#/responses/Error" },
-          "304": { "$ref": "#/responses/NotModified" },
+          "304": { "$ref": "#/responses/Empty" },
           "200": {
             "description": "Game data",
             "schema": {
@@ -318,14 +438,60 @@
         }
       }
     },
+    "/inventory/{uuid}": {
+      "get": {
+        "tags": [ "inventory" ],
+        "description": "get a specific inventory you have access to. this one will include a list of all the unique items in the inventory also.",
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "the uuid of the inventory you want",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/Empty" },
+          "404": { "$ref": "#/responses/NotFound" },
+          "200": {
+            "description": "A specific inventory",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
     "/inventory": {
+      "post": {
+        "tags": [ "inventory" ],
+        "description": "transfer contents from one inventory to another. If you leave the `to_*` fields blank the transfered items will be deleted. If you have NPC credentials you can leave the `from_*` fields blank to add items to a container.",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters as json",
+            "schema": {
+              "$ref": "#/definitions/transferParameters"
+            }
+          }
+        
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "204": { "$ref": "#/responses/Empty" }
+        }
+      },
       "get": {
         "tags": [ "inventory" ],
         "description": "Returns all your inventories. This might change if it gets too expensive. It's not currently paginated.",
         "parameters": [],
         "responses": {
           "default": { "$ref": "#/responses/Error" },
-          "304": { "$ref": "#/responses/NotModified" },
+          "304": { "$ref": "#/responses/Empty" },
           "200": {
             "description": "a list of inventories",
             "schema": {

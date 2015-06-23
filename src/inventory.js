@@ -418,7 +418,7 @@ var self = module.exports = {
             Q.spread([
                 C.http.authorize_req(req),
                 db.inventory.get(uuid),
-                db.many("select * from items where container_id = $1", uuid)
+                db.any("select * from items where container_id = $1", uuid)
             ], function(auth, container, items) {
                 if (containerAuthorized(req.ctx, container, auth.account)) {
                     container.doc.items = items
@@ -510,6 +510,16 @@ var self = module.exports = {
             }
 
             var dataset = req.body
+
+            if (dataset.from_id === undefined)
+                dataset.from_id = null
+            if (dataset.from_slice === undefined || dataset.from_id === null)
+                dataset.from_slice = null
+
+            if (dataset.to_id === undefined)
+                dataset.to_id = null
+            if (dataset.to_slice === undefined || dataset.to_id === null)
+                dataset.to_slice = null
 
             C.http.authorize_req(req).then(function(auth) {
                 return db.tx(req.ctx, function(db) {

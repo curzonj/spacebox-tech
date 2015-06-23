@@ -189,7 +189,7 @@ var self = module.exports = {
                 then(function(data) {
                     res.json(data)
                 })
-            })
+            }).fail(C.http.errHandler(req, res, console.log)).done()
         })
 
         // players cancel jobs

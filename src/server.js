@@ -3,6 +3,7 @@
 var http = require("http")
 var express = require("express")
 var uuidGen = require('node-uuid')
+var bodyParser = require('body-parser')
 var Q = require('q')
 var WTF = require('wtf-shim')
 var C = require('spacebox-common')
@@ -62,6 +63,12 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
 
     // Serve the Swagger documents and Swagger UI
     app.use(middleware.swaggerUi());
+
+    // Not all endpoints use swagger yet
+    app.use(bodyParser.json())
+    app.use(bodyParser.urlencoded({
+        extended: false
+    }))
 
     app.use(function(req, res, next) {
         if (req.body !== undefined)
