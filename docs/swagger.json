@@ -13,6 +13,14 @@
       "type": "string",
       "pattern" : "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
+    "responseError": {
+      "type": "object",
+      "properties": {
+        "errorDetails": {
+          "description": "this really should be rationalized but atm, it could be a string OR an object. Swagger doesn't support this as a schema so it's left undefined"
+        }
+      }
+    },
     "manufacturingJob": {
       "type": "object",
       "properties": {
@@ -55,12 +63,7 @@
     "Error": {
       "description": "Any kind of error, not just an internal error",
       "schema": {
-        "type": "object",
-        "properties": {
-          "errorDetails": {
-            "description": "this really should be rationalized but atm, it could be a string OR an object. Swagger doesn't support this as a schema so it's left undefined"
-          }
-        }
+        "$ref": "#/definitions/responseError"
       }
     },
     "NotModified": {
