@@ -13,7 +13,7 @@ var self = module.exports = {
     destroyFacility: function(facility, db) {
         return pubsub.publish(db.ctx, {
             type: 'facility',
-            account: facility.account,
+            agent_id: facility.agent_id,
             tombstone: true,
             uuid: facility.id,
             blueprint: facility.blueprint,
@@ -26,7 +26,7 @@ var self = module.exports = {
 
         return Q.spread([
             db.inventory.getForUpdateOrFail(uuid, db),
-            db.any("select * from facilities where inventory_id = $1 for update", uuid)
+            db.any("select * from facilities where container_id = $1 for update", uuid)
         ], function(container, current_facilities) {
             return Q.all([
                 db.blueprints.get(container.doc.blueprint),
@@ -61,15 +61,15 @@ var self = module.exports = {
             }).tap(function(changes) {
                 return Q.all([
                     Q.all(changes.added.map(function(v) {
-                        return db.none("insert into facilities (id, account, inventory_id, blueprint, facility_type, trigger_at, doc) values (uuid_generate_v1(), $1, $2, $3, $4, current_timestamp, $5)", [container.account, uuid, v, these_blueprints[v].facility_type, {}])
+                        return db.none("insert into facilities (id, agent_id, container_id, blueprint, facility_type, trigger_at, doc) values (uuid_generate_v1(), $1, $2, $3, $4, current_timestamp, $5)", [container.agent_id, uuid, v, these_blueprints[v].facility_type, {}])
                     })),
                     Q.all(C.array_unique(changes.removed).map(function(v) {
                         // If there is still some of the removed facilities
                         // installed, just disabled them and let the use pick
                         if (container.doc.modules.indexOf(v) > -1) {
-                            return db.none("update facilities set disabled = true where inventory_id = $1 and blueprint = $2", [uuid, v])
+                            return db.none("update facilities set disabled = true where container_id = $1 and blueprint = $2", [uuid, v])
                         } else { // If there are none remaining, just destroy them
-                            return db.many("select * from facilities where inventory_id = $1 and blueprint = $2 for update", [uuid, v]).
+                            return db.many("select * from facilities where container_id = $1 and blueprint = $2 for update", [uuid, v]).
                             then(function(list) {
                                 return Q.all(list.map(function(facility) {
                                     return self.destroyFacility(facility, db)
@@ -78,14 +78,14 @@ var self = module.exports = {
                         }
                     })),
                     Q.all(C.array_unique(changes.unchanged).map(function(v) {
-                        return db.none("update facilities set disabled = false where inventory_id = $1 and blueprint = $2", [uuid, v])
+                        return db.none("update facilities set disabled = false where container_id = $1 and blueprint = $2", [uuid, v])
                     }))
                 ])
             }).then(function(changes) {
                 return pubsub.publish(db.ctx, {
                     type: 'facilities',
-                    account: container.account,
-                    inventory: uuid,
+                    agent_id: container.agent_id,
+                    container_id: uuid,
                     changes: changes
                 })
             })

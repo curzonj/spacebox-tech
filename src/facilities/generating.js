@@ -31,14 +31,14 @@ module.exports = {
                 } else if (
                     moment(facility.doc.resources_checked_at).add(blueprint.generating_period, 'm').isBefore(moment())
                 ) {
-                    return helpers.produce(facility.inventory_id, 'default', [{
+                    return helpers.produce(facility.container_id, 'default', [{
                         blueprint: blueprint.generated_resource,
                         quantity: blueprint.generating_quantity
                     }], db).
                     then(function() {
                         return pubsub.publish(ctx, {
                             type: 'resources',
-                            account: facility.account,
+                            agent_id: facility.agent_id,
                             facility: uuid,
                             blueprint: blueprint.generated_resource,
                             quantity: blueprint.generating_quantity,
@@ -50,7 +50,7 @@ module.exports = {
                     }).fail(function(e) {
                         return pubsub.publish(ctx, {
                             type: 'resources',
-                            account: facility.account,
+                            agent_id: facility.agent_id,
                             facility: uuid,
                             blueprint: blueprint.generated_resource,
                             quantity: blueprint.generating_quantity,

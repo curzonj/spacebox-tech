@@ -17,13 +17,13 @@ module.exports = {
         job.duration = blueprint.refine.time
     },
     fullfillResources: function(ctx, job, blueprint, container, db) {
-        return helpers.consume(job.inventory_id, job.slice, [{
+        return helpers.consume(job.container_id, job.slice, [{
             blueprint: job.blueprint,
             quantity: job.quantity
         }], db)
     },
     deliverJob: function(ctx, job, container, db) {
-        return helpers.produce(job.inventory_id, job.slice, Object.keys(job.outputs).map(function(key) {
+        return helpers.produce(job.container_id, job.slice, Object.keys(job.outputs).map(function(key) {
             return {
                 blueprint: key,
                 quantity: job.outputs[key] * job.quantity

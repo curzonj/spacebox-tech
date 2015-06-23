@@ -8,7 +8,7 @@ var worldState = config.state
 function validateSubjectTarget(ctx, subject, target, auth) {
     ctx.trace({subject: subject, target: target, auth: auth}, 'validateSubjectTarget')
 
-    if (subject === null || subject === undefined || subject.account !== auth.account) {
+    if (subject === null || subject === undefined || subject.agent_id !== auth.agent_id) {
         throw new Error("no such vessel")
     } else if (target === null || target === undefined) {
         throw new Error("no such target")
@@ -59,7 +59,7 @@ module.exports = function(app) {
             C.http.authorize_req(req),
             worldState.getP(msg.vessel),
         ], function(auth, ship) {
-            if (ship === null || ship.account !== auth.account)
+            if (ship === null || ship.agent_id !== auth.agent_id)
                 throw new Error("no such vessel")
 
             setState(ship, 'engine', 'moveTo', {
@@ -104,7 +104,7 @@ module.exports = function(app) {
             C.http.authorize_req(req),
             worldState.getP(msg.vessel),
         ], function(auth, ship) {
-            if (ship === null || ship.account !== auth.account)
+            if (ship === null || ship.agent_id !== auth.agent_id)
                 throw new Error("no such vessel")
 
             setState(ship, 'engine', 'fullStop').

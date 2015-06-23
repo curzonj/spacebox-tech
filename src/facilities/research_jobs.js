@@ -28,7 +28,7 @@ module.exports = {
             components: tech.parameters[job.parameter].step_cost
         }, { value: blueprint[job.parameter] }))
 
-        return helpers.consume(job.inventory_id, job.slice, [{
+        return helpers.consume(job.container_id, job.slice, [{
             blueprint: "f9e7e6b4-d5dc-4136-a445-d3adffc23bc6",
             quantity: step_cost
         }], db)
@@ -48,7 +48,7 @@ module.exports = {
 
             return design_api.buildNewBlueprint(row.doc, row.parameters)
         }).then(function(doc) {
-            return db.blueprints.grantPermission(doc.uuid, job.account, true, true)
+            return db.blueprints.grantPermission(doc.uuid, job.agent_id, true, true)
         })
     }
 }

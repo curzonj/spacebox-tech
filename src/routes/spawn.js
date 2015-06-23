@@ -27,21 +27,21 @@ function spawnVessel(ctx, msg) {
     }).then(function() {
         return db.blueprints.get(msg.blueprint)
     }).then(function(blueprint) {
-        var account,
+        var agent_id,
             target,
             next = Q(null),
             uuid = msg.uuid || uuidGen.v1()
 
         if (blueprint === undefined ||
             msg.solar_system === undefined ||
-            msg.account === undefined) {
+            msg.agent_id === undefined) {
             throw new Error("invalid spawn params")
         }
 
         return next.then(function() {
             return inventory.spawnVessel(ctx, {
                 uuid: uuid,
-                account: msg.account,
+                agent_id: msg.agent_id,
                 blueprint: blueprint.uuid,
                 from: msg.from || {
                     uuid: null,
@@ -82,8 +82,8 @@ module.exports = function(app) {
                 throw ("You are not within range, " + config.game.docking_range)
 
             return inventory.dockVessel(req.ctx, msg.vessel_uuid, {
-                account: auth.account,
-                inventory: msg.container,
+                agent_id: auth.agent_id,
+                container_id: msg.container,
                 slice: msg.slice
             }).then(function() {
                 return worldState.queueChangeIn(vessel.uuid, {
@@ -110,13 +110,13 @@ module.exports = function(app) {
             if (msg.slice === undefined || msg.blueprint === undefined)
                 throw new Error("missing parameters: slice or blueprint")
 
-            msg.account = auth.account
+            msg.agent_id = auth.agent_id
 
             return Q.fcall(function() {
                 if (!auth.priviliged)
                     return db.one(
-                        "select count(*) as count from items where account = $1",
-                        auth.account).
+                        "select count(*) as count from items where agent_id = $1",
+                        auth.agent_id).
                     then(function(result) {
                         if (result.count >= config.game.maximum_vessels)
                             throw new Error("already have the maximum number of deployed vessels")
@@ -125,7 +125,7 @@ module.exports = function(app) {
                 return spawnVessel(req.ctx, {
                     uuid: msg.vessel_uuid, // uuid may be undefined here, spawnVessel will populate it if need be
                     blueprint: msg.blueprint,
-                    account: auth.account,
+                    agent_id: auth.agent_id,
                     position: C.deepMerge(container.position, {}),
                     solar_system: container.solar_system,
                     from: {
@@ -155,7 +155,7 @@ module.exports = function(app) {
         C.http.authorize_req(req).then(function(auth) {
             var uuid = uuidGen.v1()
 
-            return inventory.getStarterData(req.ctx, uuid, auth.account).
+            return inventory.getStarterData(req.ctx, uuid, auth.agent_id).
             then(function(data) {
                 return Q.all([
                     solarsystems.getSpawnSystemId(),
@@ -165,7 +165,7 @@ module.exports = function(app) {
             }).spread(function(solar_system, blueprint, data) {
                 return space_data.spawn(req.ctx, uuid, blueprint, {
                     modules: data.modules,
-                    account: auth.account,
+                    agent_id: auth.agent_id,
                     position: space_data.random_position(config.game.spawn_range),
                     solar_system: solar_system
                 })

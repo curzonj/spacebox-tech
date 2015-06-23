@@ -48,22 +48,22 @@ DBClass.extend(function(db) {
                     })
                 })
             },
-            grantPermission: function(blueprint_id, account_id, can_manufacture, can_research) {
-                return db.none("insert into blueprint_perms (blueprint_id, account_id, can_manufacture, can_research) values ($1, $2, $3, $4)", [ blueprint_id, account_id, can_manufacture, can_research ])
+            grantPermission: function(blueprint_id, agent_id, can_manufacture, can_research) {
+                return db.none("insert into blueprint_perms (blueprint_id, agent_id, can_manufacture, can_research) values ($1, $2, $3, $4)", [ blueprint_id, agent_id, can_manufacture, can_research ])
             }
         },
         inventory: {
-            all: function(account) {
-                if (account === undefined) {
-                    return db.query("select * from inventories")
+            all: function(agent_id) {
+                if (agent_id === undefined) {
+                    return db.query("select * from containers")
                 } else {
-                    return db.query("select * from inventories where account=$1", [account])
+                    return db.query("select * from containers where agent_id=$1", [agent_id])
                 }
             },
             getForUpdateOrFail: function(uuid) {
                 db.assertTx()
 
-                return db.one("select * from inventories where id=$1 for update", uuid)
+                return db.one("select * from containers where id=$1 for update", uuid)
             },
             getForUpdate: function(uuid) {
                 db.assertTx()
@@ -71,36 +71,36 @@ DBClass.extend(function(db) {
                 if (uuid === null)
                     return null
 
-                return db.oneOrNone("select * from inventories where id=$1 for update", uuid)
+                return db.oneOrNone("select * from containers where id=$1 for update", uuid)
             },
             get: function(uuid) {
                 if (uuid === null)
                     return null
 
-                return db.oneOrNone("select * from inventories where id=$1", uuid)
+                return db.oneOrNone("select * from containers where id=$1", uuid)
             },
             update: function(uuid, doc) {
                 if (db === undefined)
                     db = db
 
                 db.ctx.old_debug('dao', "updating inventory doc", uuid, doc)
-                return db.query("update inventories set doc = $2 where id =$1", [uuid, doc])
+                return db.query("update containers set doc = $2 where id =$1", [uuid, doc])
             },
             insert: function(uuid, doc) {
                 return db.
-                query("insert into inventories (id, account, doc) values ($1, $2, $3)", [uuid, doc.account, doc])
+                query("insert into containers (id, agent_id, doc) values ($1, $2, $3)", [uuid, doc.agent_id, doc])
             },
             destroy: function(uuid) {
                 // TODO this should also require that the container is empty
-                return db.query("delete from inventories where id = $1", [uuid])
+                return db.query("delete from containers where id = $1", [uuid])
             }
         },
         facilities: {
-            all: function(account) {
-                if (account === undefined) {
+            all: function(agent_id) {
+                if (agent_id === undefined) {
                     return db.query('select * from facilities')
                 } else {
-                    return db.query('select * from facilities where account = $1', [account])
+                    return db.query('select * from facilities where agent_id = $1', [agent_id])
                 }
             },
             needAttention: function() {
@@ -119,23 +119,23 @@ DBClass.extend(function(db) {
 
         },
         jobs: {
-            all: function(account) {
-                if (account === undefined) {
+            all: function(agent_id) {
+                if (agent_id === undefined) {
                     return db.query("select * from jobs")
                 } else {
-                    return db.query("select * from jobs where account=$1", [account])
+                    return db.query("select * from jobs where agent_id=$1", [agent_id])
                 }
             },
-            get: function(uuid, account) {
+            get: function(uuid, agent_id) {
                 return db.
-                query("select * from jobs where id=$1 and account=$1", [uuid, account]).
+                query("select * from jobs where id=$1 and agent_id=$1", [uuid, agent_id]).
                 then(function(data) {
                     return data[0]
                 })
             },
             queue: function(doc) {
                 return db.
-                query("insert into jobs (id, facility_id, account, doc, status, statusCompletedAt, createdAt, trigger_at) values ($1, $2, $3, $4, $5, current_timestamp, current_timestamp, current_timestamp)", [doc.uuid, doc.facility, doc.account, doc, "queued"])
+                query("insert into jobs (id, facility_id, agent_id, doc, status, statusCompletedAt, createdAt, trigger_at) values ($1, $2, $3, $4, $5, current_timestamp, current_timestamp, current_timestamp)", [doc.uuid, doc.facility, doc.agent_id, doc, "queued"])
 
             },
             nextJob: function(facility_id) {

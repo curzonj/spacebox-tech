@@ -1,15 +1,15 @@
 CREATE EXTENSION "uuid-ossp";
 
-CREATE TABLE inventories (
+CREATE TABLE containers (
     id uuid PRIMARY KEY,
-    account uuid not null,
+    agent_id uuid not null,
     doc json not null
 );
 
 CREATE TABLE facilities (
     id uuid PRIMARY KEY,
-    account uuid not null,
-    inventory_id uuid not null references inventories (id) ON DELETE CASCADE,
+    agent_id uuid not null,
+    container_id uuid not null references containers (id) ON DELETE CASCADE,
     blueprint uuid not null,
     current_job_id uuid,
 
@@ -24,7 +24,7 @@ CREATE TABLE facilities (
 CREATE TABLE jobs (
     id uuid PRIMARY KEY,
     facility_id uuid references facilities (id) ON DELETE SET NULL,
-    account uuid not null,
+    agent_id uuid not null,
 
     trigger_at timestamp with time zone not null,
     next_backoff interval not null default '1 second',
@@ -45,10 +45,10 @@ alter table facilities add foreign key (current_job_id) references jobs ON DELET
 CREATE TABLE items (
     id uuid PRIMARY KEY,
     blueprint_id uuid not null,
-    container_id uuid references inventories (id) ON DELETE CASCADE,
+    container_id uuid references containers (id) ON DELETE CASCADE,
     container_slice varchar(255),
     locked boolean not null default false,
-    account uuid not null,
+    agent_id uuid not null,
     doc json not null
 );
 
@@ -65,10 +65,10 @@ alter table items add foreign key (blueprint_id) references blueprints (id);
 
 CREATE TABLE blueprint_perms (
     blueprint_id uuid not null references blueprints (id) ON DELETE CASCADE,
-    account_id uuid not null,
+    agent_id uuid not null,
     can_research boolean not null default false,
     can_manufacture boolean not null default false,
-    PRIMARY KEY (blueprint_id, account_id)
+    PRIMARY KEY (blueprint_id, agent_id)
 );
 
 CREATE TABLE solar_systems (
@@ -78,7 +78,7 @@ CREATE TABLE solar_systems (
 
 CREATE TABLE space_objects (
     id uuid PRIMARY KEY,
-    account_id uuid,
+    agent_id uuid,
     system_id uuid not null REFERENCES solar_systems (id),
     tombstone boolean not null default false,
     tombstone_at timestamp,

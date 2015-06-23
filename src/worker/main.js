@@ -17,7 +17,7 @@ function destroyVessel(ctx, uuid) {
     return db.tx(ctx, function(db) {
         return db.inventory.getForUpdateOrFail(uuid, db).
         then(function(container) {
-            return db.any("select * from facilities where inventory_id = $1", uuid)
+            return db.any("select * from facilities where container_id = $1", uuid)
         }).then(function(list) {
             return Q.all(list.map(function(facility) {
                 return production_dep.destroyFacility(facility, db)
@@ -49,7 +49,7 @@ solarsystems.ensurePoolSize().done()
 
 /*
     /// This is for the space_object database table
-    var keys_to_update_on = ["blueprint", "account", "solar_system"]
+    var keys_to_update_on = ["blueprint", "agent_id", "solar_system"]
         if (keys_to_update_on.some(function(i) {
                 return patch.hasOwnProperty(i)
             })) {

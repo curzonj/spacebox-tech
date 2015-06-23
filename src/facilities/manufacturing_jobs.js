@@ -23,7 +23,7 @@ module.exports = {
         return helpers.consumeBuildResources(job.quantity, blueprint.build, container, job.slice, ctx, db)
     },
     deliverJob: function(ctx, job, container, db) {
-        return helpers.produce(job.inventory_id, job.slice, [{
+        return helpers.produce(job.container_id, job.slice, [{
             blueprint: job.blueprint,
             quantity: job.quantity
         }], db)

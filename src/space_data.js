@@ -49,14 +49,14 @@ var self = module.exports = {
         function(ctx, uuid, blueprint, msg, fn) {
             if (blueprint === undefined ||
                 msg.solar_system === undefined ||
-                msg.account === undefined) {
+                msg.agent_id === undefined) {
                 throw new Error("invalid spawn params")
             }
 
             var obj = {
                 type: blueprint.type,
                 solar_system: msg.solar_system,
-                account: msg.account,
+                agent_id: msg.agent_id,
                 blueprint: blueprint.uuid,
                 health: blueprint.maxHealth,
                 model_name: blueprint.model_name,

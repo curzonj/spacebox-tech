@@ -56,7 +56,7 @@ module.exports = {
                 return db.blueprints.get(job.blueprint).
                 then(function(blueprint) {
                     return Q.all([
-                        design_api.updateVesselBlueprint(job.inventory_id, blueprint),
+                        design_api.updateVesselBlueprint(job.container_id, blueprint),
                         inventory.updateContainer(ctx, container, blueprint, db)
                     ])
                 })
@@ -69,7 +69,7 @@ module.exports = {
                 })
             }
         }).then(function() {
-            return production.updateFacilities(job.inventory_id, db)
+            return production.updateFacilities(job.container_id, db)
         }).then(function() {
             return db.one("update items set locked = false where id = $1 returning id", container.id)
         })

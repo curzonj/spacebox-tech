@@ -10,11 +10,11 @@ var worldState = config.state
 var solarsystems = require('../solar_systems')
 
 module.exports = function(app) {
-    app.post('/commands/resetAccount', function(req, res) {
+    app.post('/commands/resetAgent', function(req, res) {
         C.http.authorize_req(req).then(function(auth) {
             var msg = req.body
 
-            return db.query("select * from items where account = $1", auth.account).then(function(data) {
+            return db.query("select * from items where agent_id = $1", auth.agent_id).then(function(data) {
                 return Q.all(data.map(function(row) {
                     // World state will notify us when it has despawned and
                     // we can delete everything

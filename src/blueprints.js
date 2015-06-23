@@ -142,7 +142,7 @@ var self = module.exports = {
                 if (auth.privileged === true) {
                     query = db.one("select * from blueprints where id = $1", uuid)
                 } else {
-                    query = db.one("select * from blueprints where id in (select blueprint_id from blueprint_perms where account_id = $1) or blueprints.is_public = true and id = $2", [auth.account, uuid])
+                    query = db.one("select * from blueprints where id in (select blueprint_id from blueprint_perms where agent_id = $1) or blueprints.is_public = true and id = $2", [auth.agent_id, uuid])
                 }
 
                 return query.then(function(row) {
@@ -157,7 +157,7 @@ var self = module.exports = {
                 if (auth.privileged === true) {
                     list = db.many("select * from blueprints")
                 } else {
-                    list = db.many("select * from blueprints where id in (select blueprint_id from blueprint_perms where account_id = $1) or blueprints.is_public = true", auth.account)
+                    list = db.many("select * from blueprints where id in (select blueprint_id from blueprint_perms where agent_id = $1) or blueprints.is_public = true", auth.agent_id)
                 }
 
                 return list.then(buildBigList).

@@ -19,7 +19,7 @@ function fullfillResources(ctx, data, db) {
             if (job.action !== 'refitting')
                 return db.blueprints.get(job.blueprint)
         }),
-        db.inventory.getForUpdateOrFail(job.inventory_id, db),
+        db.inventory.getForUpdateOrFail(job.container_id, db),
         db.query("select id from facilities where id = $1 for update", job.facility)
     ]).spread(function(blueprint, container) {
         ctx.info({ job_id: job.id }, 'starting job')
@@ -41,7 +41,7 @@ function fullfillResources(ctx, data, db) {
 
         return pubsub.publish(ctx, {
             type: 'job',
-            account: job.account,
+            agent_id: job.agent_id,
             uuid: job.uuid,
             facility: job.facility,
             state: 'started',
@@ -59,7 +59,7 @@ function jobDeliveryHandling(ctx, data, db) {
         return
     }
 
-    return db.inventory.getForUpdateOrFail(job.inventory_id, db).
+    return db.inventory.getForUpdateOrFail(job.container_id, db).
     then(function(container) {
         return jobHandlers.deliverJob(ctx, job, container, db)
     }).then(function() {
@@ -70,7 +70,7 @@ function jobDeliveryHandling(ctx, data, db) {
         ctx.info({ job_id: job.id }, 'delivered job')
 
         return pubsub.publish(ctx, {
-            account: job.account,
+            agent_id: job.agent_id,
             type: 'job',
             uuid: job.uuid,
             facility: job.facility,
@@ -113,7 +113,7 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
 
         return pubsub.publish(ctx, {
             type: 'job',
-            account: job.account,
+            agent_id: job.agent_id,
             uuid: job.uuid,
             facility: job.facility,
             error: e.message
@@ -175,7 +175,7 @@ var self = module.exports = {
     router: function(app) {
         app.get('/jobs/:uuid', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
-                return db.jobs.get(req.param('uuid'), auth.account).
+                return db.jobs.get(req.param('uuid'), auth.agent_id).
                 then(function(data) {
                     res.json(data)
                 })
@@ -185,7 +185,7 @@ var self = module.exports = {
         app.get('/jobs', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
                 return db.jobs.
-                all(auth.privileged && req.param('all') == 'true' ? undefined : auth.account).
+                all(auth.privileged && req.param('all') == 'true' ? undefined : auth.agent_id).
                 then(function(data) {
                     res.json(data)
                 })
@@ -220,7 +220,7 @@ var self = module.exports = {
 
                 // Must wait until we have the auth response to check authorization
                 // TODO come up with a better means of authorization
-                if (facility.account != auth.account)
+                if (facility.agent_id != auth.agent_id)
                     throw new C.http.Error(401, "invalid_job", {
                         msg: "not authorized to access that facility"
                     })
@@ -231,8 +231,8 @@ var self = module.exports = {
                     db.blueprints.get(facility.blueprint)
                 ])
             }).spread(function(auth, facility, facilityType) {
-                job.account = auth.account
-                job.inventory_id = facility.inventory_id
+                job.agent_id = auth.agent_id
+                job.container_id = facility.container_id
                 job.action = facilityType.facility_type
 
                 return Q.fcall(function() {
@@ -261,7 +261,7 @@ var self = module.exports = {
                 return db.tx(req.ctx, function(db) {
                     return self.updateFacilities(uuid, db).
                     then(function() {
-                        return db.many("select * from facilities where account = $1 and inventory_id = $2", [auth.account, uuid])
+                        return db.many("select * from facilities where agent_id = $1 and container_id = $2", [auth.agent_id, uuid])
                     })
                 })
             }).then(function(list) {
@@ -274,7 +274,7 @@ var self = module.exports = {
                 if (auth.privileged && req.param('all') == 'true') {
                     return db.facilities.all()
                 } else {
-                    return db.facilities.all(auth.account)
+                    return db.facilities.all(auth.agent_id)
                 }
             }).then(function(list) {
                 res.json(list)
@@ -290,7 +290,7 @@ var self = module.exports = {
         app.delete('/facilities/:uuid', function(req, res) {
             C.http.authorize_req(req).then(function(auth) {
                 return db.tx(function(db) {
-                    return db.one("select * from facilities where id=$1 and account = $2 and disabled = 't' for update", [req.param('uuid'), auth.account]).
+                    return db.one("select * from facilities where id=$1 and agent_id = $2 and disabled = 't' for update", [req.param('uuid'), auth.agent_id]).
                     then(function(facility) {
                         return self.destroyFacility(facility, db)
                     })
