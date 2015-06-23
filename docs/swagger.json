@@ -371,7 +371,7 @@
     "/jobs/construction": {
       "post": {
         "tags": [ "jobs" ],
-        "description": "start a construction job",
+        "description": "start a construction job. This can change the blueprint of the structure and/or change the installed modules.",
         "parameters": [
           {
             "name": "body",
@@ -407,7 +407,7 @@
     "/jobs/refitting": {
       "post": {
         "tags": [ "jobs" ],
-        "description": "start a refitting job",
+        "description": "start a refitting job. That takes a ship in inventory and changes it's installed modules.",
         "parameters": [
           {
             "name": "body",
@@ -443,7 +443,7 @@
     "/jobs/refining": {
       "post": {
         "tags": [ "jobs" ],
-        "description": "start a refining job",
+        "description": "start a refining job. That changes Ore into Metal.",
         "parameters": [
           {
             "name": "body",
@@ -479,7 +479,7 @@
     "/jobs/research": {
       "post": {
         "tags": [ "jobs" ],
-        "description": "start a research job. When the job completes you'll have a new blueprint in your list",
+        "description": "start a research job. When the job completes you'll have a new blueprint in your list with the parameter specified improved. The job consumes resources from the inventory to do the research.",
         "parameters": [
           {
             "name": "body",
