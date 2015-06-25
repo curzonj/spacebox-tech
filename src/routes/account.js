@@ -9,6 +9,7 @@ var config = require('../config')
 var db = config.db
 var worldState = config.state
 var solarsystems = require('../solar_systems')
+var inventory = require('../inventory')
 
 module.exports = function(app) {
     app.post('/commands/resetAgent', function(req, res, next) {
@@ -21,6 +22,8 @@ module.exports = function(app) {
                 return worldState.queueChangeIn(row.id, {
                     tombstone_cause: 'despawned',
                     tombstone: true
+                }).then(function() {
+                    return inventory.destroyVessel(req.db, req.ctx, row.id)
                 })
             })
         }).then(function() {

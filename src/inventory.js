@@ -53,6 +53,26 @@ function buildContainerIfNeeded(ctx, uuid, agent_id, blueprint, db) {
 }
 
 var self = module.exports = {
+     destroyVessel: function(db, ctx, uuid) {
+        return db.tx(function(db) {
+            return db.inventory.getForUpdate(uuid, db).
+            then(function(container) {
+                if (container === null)
+                    return
+
+                return db.any("select * from facilities where container_id = $1", uuid).
+                then(function(list) {
+                    return async.map(list, function(facility) {
+                        return production.destroyFacility(facility, db)
+                    })
+                }).then(function() {
+                    return db.inventory.destroy(uuid, db)
+                }).then(function() {
+                    return db.none("delete from items where id = $1", uuid)
+                })
+            })
+        })
+    },
     dockVessel: function(ctx, uuid, data) {
         return db.tx(ctx, function(db) {
             return Q.spread([
