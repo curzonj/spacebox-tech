@@ -398,51 +398,50 @@ var self = module.exports = {
         })
     },
     router: function(app) {
-        app.get('/inventory', function(req, res) {
-            C.http.authorize_req(req).then(function(auth) {
-                if (auth.privileged && req.param('all') == 'true') {
+        app.get('/inventory', function(req, res, next) {
+            Q.fcall(function() {
+                if (req.auth.privileged && req.param('all') == 'true') {
                     return db.inventory.all().then(function(data) {
                         res.json(data)
                     })
                 } else {
-                    return db.inventory.all(auth.agent_id).then(function(data) {
+                    return db.inventory.all(req.auth.agent_id).then(function(data) {
                         res.json(data)
                     })
                 }
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            }).fail(next).done()
         })
 
-        app.get('/inventory/:uuid', function(req, res) {
+        app.get('/inventory/:uuid', function(req, res, next) {
             var uuid = req.param('uuid')
 
             Q.spread([
-                C.http.authorize_req(req),
                 db.inventory.get(uuid),
                 db.any("select * from items where container_id = $1", uuid)
-            ], function(auth, container, items) {
-                if (containerAuthorized(req.ctx, container, auth.agent_id)) {
+            ], function(container, items) {
+                if (containerAuthorized(req.ctx, container, req.auth.agent_id)) {
                     container.doc.items = items
                     res.json(container.doc)
                 } else {
                     res.sendStatus(403)
                 }
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            }).fail(next).done()
         })
 
         // this unpacks an item from container and makes it unique
-        app.post('/items', function(req, res) {
+        app.post('/items', function(req, res, next) {
             var inventoryID = req.param('container_id'),
                 sliceID = req.param('slice'),
                 blueprintID = req.param('blueprint')
                 // TODO the tracing context should be inejected at the beginning
             db.tx(req.ctx, function(db) {
-                return Q.spread([db.blueprints.get(blueprintID), C.http.authorize_req(req), db.inventory.getForUpdateOrFail(inventoryID, db)], function(blueprint, auth, container_row) {
+                return Q.spread([db.blueprints.get(blueprintID), db.inventory.getForUpdateOrFail(inventoryID, db)], function(blueprint, container_row) {
                     var inventory = container_row.doc
 
-                    if (!containerAuthorized(req.ctx, inventory, auth.agent_id)) {
+                    if (!containerAuthorized(req.ctx, inventory, req.auth.agent_id)) {
                         throw new C.http.Error(403, "unauthorized", {
                             container: container_row.agent_id,
-                            auth: auth,
+                            auth: req.auth,
                         })
                     }
 
@@ -481,7 +480,7 @@ var self = module.exports = {
                                     item: item
                                 }], db).
                                 then(function() {
-                                    return buildContainerIfNeeded(req.ctx, item.id, auth.agent_id, blueprint, db)
+                                    return buildContainerIfNeeded(req.ctx, item.id, req.auth.agent_id, blueprint, db)
                                 }).then(function() {
                                     res.json(C.deepMerge(doc, {
                                         uuid: item.id
@@ -491,11 +490,10 @@ var self = module.exports = {
                         })
                     }
                 })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            }).fail(next).done()
         })
 
-        // TODO support a schema validation
-        app.post('/inventory', function(req, res) {
+        app.post('/inventory', function(req, res, next) {
             var example = {
                 from_id: 'uuid',
                 from_slice: 'default',
@@ -521,70 +519,68 @@ var self = module.exports = {
             if (dataset.to_slice === undefined || dataset.to_id === null)
                 dataset.to_slice = null
 
-            C.http.authorize_req(req).then(function(auth) {
-                return db.tx(req.ctx, function(db) {
-                    return Q.spread([
-                        db.inventory.getForUpdate(dataset.from_id, db),
-                        db.inventory.getForUpdate(dataset.to_id, db),
-                        db.oneOrNone("select * from items where id = $1", dataset.from_id),
-                        db.oneOrNone("select * from items where id = $1", dataset.to_id),
-                    ], function(src_container, dest_container, src_vessel, dest_vessel) {
-                        if (auth.privileged !== true) {
-                            if (src_container === null || !containerAuthorized(req.ctx, src_container, auth.agent_id)) {
-                                throw new C.http.Error(403, "unauthorized", {
-                                    container: dataset.from_id,
-                                    agent_id: auth.agent_id
-                                })
-                            } else if (dest_container !== null && !containerAuthorized(req.ctx, dest_container, auth.agent_id)) {
-                                throw new C.http.Error(403, "unauthorized", {
-                                    container: dataset.to_id,
-                                    agent_id: auth.agent_id
-                                })
-                            } else if (
-                                // The vessel doesn't need to be in any particular slice, just
-                                // in the structure generally. Either one can be inside the other
-                                // for this to work
-                                dest_container !== null &&
-                                (src_vessel.container_id !== dest_container.id) &&
-                                (dest_vessel.container_id !== src_container.id)
-                            ) {
-                                throw new C.http.Error(422, "invalid_transaction", {
-                                    msg: "you can only transfer between a vessel and the structure it is docked at",
-                                    src_vessel: src_vessel,
-                                    dest_vessel: dest_vessel,
-                                    src_container: src_container,
-                                    dest_container: dest_container,
-                                })
-                            }
+            return db.tx(req.ctx, function(db) {
+                return Q.spread([
+                    db.inventory.getForUpdate(dataset.from_id, db),
+                    db.inventory.getForUpdate(dataset.to_id, db),
+                    db.oneOrNone("select * from items where id = $1", dataset.from_id),
+                    db.oneOrNone("select * from items where id = $1", dataset.to_id),
+                ], function(src_container, dest_container, src_vessel, dest_vessel) {
+                    if (req.auth.privileged !== true) {
+                        if (src_container === null || !containerAuthorized(req.ctx, src_container, req.auth.agent_id)) {
+                            throw new C.http.Error(403, "unauthorized", {
+                                container: dataset.from_id,
+                                agent_id: req.auth.agent_id
+                            })
+                        } else if (dest_container !== null && !containerAuthorized(req.ctx, dest_container, req.auth.agent_id)) {
+                            throw new C.http.Error(403, "unauthorized", {
+                                container: dataset.to_id,
+                                agent_id: req.auth.agent_id
+                            })
+                        } else if (
+                            // The vessel doesn't need to be in any particular slice, just
+                            // in the structure generally. Either one can be inside the other
+                            // for this to work
+                            dest_container !== null &&
+                            (src_vessel.container_id !== dest_container.id) &&
+                            (dest_vessel.container_id !== src_container.id)
+                        ) {
+                            throw new C.http.Error(422, "invalid_transaction", {
+                                msg: "you can only transfer between a vessel and the structure it is docked at",
+                                src_vessel: src_vessel,
+                                dest_vessel: dest_vessel,
+                                src_container: src_container,
+                                dest_container: dest_container,
+                            })
                         }
+                    }
 
-                        return Q.all(dataset.items.map(function(t) {
-                            if (t.item_uuid !== undefined) {
-                                return db.one("select * from items where id = $1 for update", t.item_uuid).
-                                then(function(item) {
-                                    return db.blueprints.get(item.doc.blueprint).
-                                    then(function(blueprint) {
-                                        return [item, blueprint]
-                                    })
-                                }).spread(function(item, blueprint) {
-                                    t.blueprint = blueprint
-                                    t.item = item
-                                })
-                            } else {
-                                if (t.blueprint !== undefined)
-                                    return db.blueprints.get(t.blueprint).
+                    return Q.all(dataset.items.map(function(t) {
+                        if (t.item_uuid !== undefined) {
+                            return db.one("select * from items where id = $1 for update", t.item_uuid).
+                            then(function(item) {
+                                return db.blueprints.get(item.doc.blueprint).
                                 then(function(blueprint) {
-                                    t.blueprint = blueprint
+                                    return [item, blueprint]
                                 })
-                            }
-                        })).then(function() {
-                            return self.transfer(src_container, dataset.from_slice, dest_container, dataset.to_slice, dataset.items, db)
-                        }).then(function() {
-                            res.sendStatus(204)
-                        })
+                            }).spread(function(item, blueprint) {
+                                t.blueprint = blueprint
+                                t.item = item
+                            })
+                        } else {
+                            if (t.blueprint !== undefined)
+                                return db.blueprints.get(t.blueprint).
+                            then(function(blueprint) {
+                                t.blueprint = blueprint
+                            })
+                        }
+                    })).then(function() {
+                        return self.transfer(src_container, dataset.from_slice, dest_container, dataset.to_slice, dataset.items, db)
+                    }).then(function() {
+                        res.sendStatus(204)
                     })
                 })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            }).fail(next).done()
         })
     }
 }

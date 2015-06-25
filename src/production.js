@@ -4,6 +4,7 @@ var uuidGen = require('node-uuid')
 var moment = require('moment')
 var Q = require('q')
 var C = require('spacebox-common')
+var async = require('async-q')
 var pubsub = require('./pubsub')
 var inventory = require('./inventory')
 var generating = require('./facilities/generating')
@@ -114,16 +115,15 @@ function checkAndProcessFacilityJob(ctx, facility_id, db) {
         return pubsub.publish(ctx, {
             type: 'job',
             agent_id: job.agent_id,
-            uuid: job.uuid,
-            facility: job.facility,
+            job_id: job.id,
+            facility_id: facility_id,
             error: e.message
         }).then(function() {
-            if (process.env.PEXIT_ON_JOB_FAIL == '1') {
+            if (process.env.PEXIT_ON_TOUGH_ERROR == '1')
                 process.nextTick(function() {
-                    console.log("exiting for job "+job.id+" debugging per ENV['PEXIT_ON_JOB_FAIL']")
+                    console.log("exiting for debugging per ENV['PEXIT_ON_TOUGH_ERROR']")
                     process.exit()
                 })
-            }
 
             if (job !== undefined && job.id !== undefined)
                 return db.jobs.incrementBackoff(job.id)
@@ -148,23 +148,20 @@ var self = module.exports = {
             jobRoundInProgress = true;
 
             ctx.trace("start processing jobs")
-            var dbC = db.tracing(ctx)
+            var db = config.db.tracing(ctx)
 
-            return dbC.facilities.needAttention().then(function(data) {
+            return db.facilities.needAttention().then(function(data) {
                 // Within a transaction, this needs to be sequential
-                return data.reduce(function(next, facility) {
+                return async.eachSeries(data,
+                function(facility) {
                     ctx.trace({ facility: facility }, 'processing facility')
 
                     if (facility.facility_type == 'generating') {
-                        return next.then(function() {
-                            return generating.checkAndDeliverResources(ctx, facility.id, dbC)
-                        })
+                        return generating.checkAndDeliverResources(ctx, facility.id, db)
                     } else {
-                        return next.then(function() {
-                            return checkAndProcessFacilityJob(ctx, facility.id, dbC)
-                        })
+                        return checkAndProcessFacilityJob(ctx, facility.id, db)
                     }
-                }, Q(null))
+                })
             }).then(function() {
                 ctx.trace('done processing jobs')
             }).fin(function() {
@@ -173,65 +170,66 @@ var self = module.exports = {
         }
     }(),
     router: function(app) {
-        app.get('/jobs/:uuid', function(req, res) {
-            C.http.authorize_req(req).then(function(auth) {
-                return db.jobs.get(req.param('uuid'), auth.agent_id).
-                then(function(data) {
-                    res.json(data)
-                })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+        app.get('/jobs/:uuid', function(req, res, next) {
+            return db.jobs.get(req.param('uuid'), req.auth.agent_id).
+            then(function(data) {
+                res.json(data)
+            }).fail(next).done()
         })
 
-        app.get('/jobs', function(req, res) {
-            C.http.authorize_req(req).then(function(auth) {
-                return db.jobs.
-                all(auth.privileged && req.param('all') == 'true' ? undefined : auth.agent_id).
-                then(function(data) {
-                    res.json(data)
-                })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+        app.get('/jobs', function(req, res, next) {
+            return db.jobs.
+            all(req.auth.privileged && req.param('all') == 'true' ? undefined : req.auth.agent_id).
+            then(function(data) {
+                res.json(data)
+            }).fail(next).done()
         })
 
         // players cancel jobs
-        app.delete('/jobs/:uuid', function(req, res) {
+        app.delete('/jobs/:uuid', function(req, res, next) {
             // does the user get the resources back?
             // not supported yet
             res.sendStatus(404)
         })
 
         // players queue jobs
-        app.post('/jobs', function(req, res) {
-            handleJobs(req.body.action, req, res)
+        app.post('/jobs', function(req, res, next) {
+            handleJobs(req.body.action, req, res).fail(next).done()
         })
 
-        app.post('/jobs/:action_name', function(req, res) {
-            handleJobs(req.params.action_name, req, res)
+        app.post('/jobs/:action_name', function(req, res, next) {
+            handleJobs(req.params.action_name, req, res).fail(next).done()
         })
 
         function handleJobs(job_action, req, res) {
             var job = req.body
             var duration = -1
 
+            if (!job.slice)
+                job.slice = 'default'
+            if (!job.quantity)
+                job.quantity = 1
+
             job.uuid = uuidGen.v1()
 
-            Q.spread([C.http.authorize_req(req), db.facilities.get(job.facility)], function(auth, facility) {
+            return db.facilities.get(job.facility).
+            then(function(facility) {
                 if (facility.facility_type !== job_action)
                     throw new C.http.Error(422, "job action must match facility")
 
                 // Must wait until we have the auth response to check authorization
                 // TODO come up with a better means of authorization
-                if (facility.agent_id != auth.agent_id)
+                if (facility.agent_id != req.auth.agent_id)
                     throw new C.http.Error(401, "invalid_job", {
                         msg: "not authorized to access that facility"
                     })
 
                 return Q.all([
-                    auth,
                     facility,
                     db.blueprints.get(facility.blueprint)
                 ])
-            }).spread(function(auth, facility, facilityType) {
-                job.agent_id = auth.agent_id
+            }).spread(function(facility, facilityType) {
+                job.agent_id = req.auth.agent_id
                 job.container_id = facility.container_id
                 job.action = facilityType.facility_type
 
@@ -251,34 +249,32 @@ var self = module.exports = {
                         }
                     })
                 })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            })
         }
 
-        app.post('/facilities', function(req, res) {
+        app.post('/facilities', function(req, res, next) {
             var uuid = req.param('container_id')
 
-            C.http.authorize_req(req).then(function(auth) {
-                return db.tx(req.ctx, function(db) {
-                    return self.updateFacilities(uuid, db).
-                    then(function() {
-                        return db.many("select * from facilities where agent_id = $1 and container_id = $2", [auth.agent_id, uuid])
-                    })
+            return db.tx(req.ctx, function(db) {
+                return self.updateFacilities(uuid, db).
+                then(function() {
+                    return db.any("select * from facilities where agent_id = $1 and container_id = $2", [req.auth.agent_id, uuid])
                 })
             }).then(function(list) {
                 res.json(list)
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            }).fail(next).done()
         })
 
-        app.get('/facilities', function(req, res) {
-            C.http.authorize_req(req).then(function(auth) {
-                if (auth.privileged && req.param('all') == 'true') {
+        app.get('/facilities', function(req, res, next) {
+            Q.fcall(function() {
+                if (req.auth.privileged && req.param('all') == 'true') {
                     return db.facilities.all()
                 } else {
-                    return db.facilities.all(auth.agent_id)
+                    return db.facilities.all(req.auth.agent_id)
                 }
             }).then(function(list) {
                 res.json(list)
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            }).fail(next).done()
         })
 
         /*
@@ -287,17 +283,15 @@ var self = module.exports = {
          * cancelling a job you lose both the output and the
          *      input, that may change in the future.
          */
-        app.delete('/facilities/:uuid', function(req, res) {
-            C.http.authorize_req(req).then(function(auth) {
-                return db.tx(function(db) {
-                    return db.one("select * from facilities where id=$1 and agent_id = $2 and disabled = 't' for update", [req.param('uuid'), auth.agent_id]).
-                    then(function(facility) {
-                        return self.destroyFacility(facility, db)
-                    })
-                }).then(function() {
-                    res.sendStatus(204)
+        app.delete('/facilities/:uuid', function(req, res, next) {
+            return db.tx(function(db) {
+                return db.one("select * from facilities where id=$1 and agent_id = $2 and disabled = 't' for update", [req.param('uuid'), req.auth.agent_id]).
+                then(function(facility) {
+                    return self.destroyFacility(facility, db)
                 })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            }).then(function() {
+                res.sendStatus(204)
+            }).fail(next).done()
         })
     }
 }

@@ -46,7 +46,7 @@ module.exports = {
 
             row.parameters[job.parameter] = row.parameters[job.parameter] + step_size
 
-            return design_api.buildNewBlueprint(row.doc, row.parameters)
+            return design_api.buildNewBlueprint(db, row.doc, row.parameters)
         }).then(function(doc) {
             return db.blueprints.grantPermission(doc.uuid, job.agent_id, true, true)
         })

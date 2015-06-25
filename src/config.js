@@ -5,8 +5,6 @@ var Q = require('q'),
 
 Q.longStackSupport = true
 
-require('./dao')
-
 module.exports = {
     game: require('../configs/'+process.env.GAME_ENV),
     raw_materials: require('../data/raw_materials'),
@@ -24,3 +22,4 @@ module.exports = {
     }
 }
 
+require('./dao')

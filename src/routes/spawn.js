@@ -29,7 +29,6 @@ function spawnVessel(ctx, msg) {
     }).then(function(blueprint) {
         var agent_id,
             target,
-            next = Q(null),
             uuid = msg.uuid || uuidGen.v1()
 
         if (blueprint === undefined ||
@@ -38,17 +37,15 @@ function spawnVessel(ctx, msg) {
             throw new Error("invalid spawn params")
         }
 
-        return next.then(function() {
-            return inventory.spawnVessel(ctx, {
-                uuid: uuid,
-                agent_id: msg.agent_id,
-                blueprint: blueprint.uuid,
-                from: msg.from || {
-                    uuid: null,
-                    slice: null
-                },
-                modules: msg.modules
-            })
+        return inventory.spawnVessel(ctx, {
+            uuid: uuid,
+            agent_id: msg.agent_id,
+            blueprint: blueprint.uuid,
+            from: msg.from || {
+                uuid: null,
+                slice: null
+            },
+            modules: msg.modules
         }).then(function(data) {
             msg.modules = data.modules
             return space_data.spawn(ctx, uuid, blueprint, msg)
@@ -61,14 +58,13 @@ module.exports = function(app) {
     // NodeJS is single threaded so this is instead of object pooling
     var position1 = new THREE.Vector3()
     var position2 = new THREE.Vector3()
-    app.post('/commands/dock', function(req, res) {
+    app.post('/commands/dock', function(req, res, next) {
         var msg = req.body
 
         Q.spread([
-            C.http.authorize_req(req),
             worldState.getP(msg.vessel_uuid),
             worldState.getP(msg.container),
-        ], function(auth, vessel, container) {
+        ], function(vessel, container) {
             if (vessel === undefined || vessel.tombstone === true) {
                 throw new Error("no such vessel")
             } else if (container === undefined || container.tombstone === true) {
@@ -82,7 +78,7 @@ module.exports = function(app) {
                 throw ("You are not within range, " + config.game.docking_range)
 
             return inventory.dockVessel(req.ctx, msg.vessel_uuid, {
-                agent_id: auth.agent_id,
+                agent_id: req.auth.agent_id,
                 container_id: msg.container,
                 slice: msg.slice
             }).then(function() {
@@ -95,85 +91,82 @@ module.exports = function(app) {
                     result: data
                 })
             })
-        }).fail(C.http.errHandler(req, res, console.log)).done()
+        }).fail(next).done()
     })
 
-    app.post('/commands/deploy', function(req, res) {
+    app.post('/commands/deploy', function(req, res, next) {
         var msg = req.body
-        Q.spread([C.http.authorize_req(req), worldState.getP(msg.container_id)],
-        function(auth, container) {
-            req.ctx.trace({ container: container }, 'deploy from')
 
-            if (container === undefined)
-                throw new Error("failed to find the container to launch the vessel. container_id=" + msg.container_id)
+        if (!msg.slice)
+            msg.slice = 'default'
 
-            if (msg.slice === undefined || msg.blueprint === undefined)
-                throw new Error("missing parameters: slice or blueprint")
+        var container = worldState.get(msg.container_id)
 
-            msg.agent_id = auth.agent_id
+        req.ctx.trace({ container: container }, 'deploy from')
 
-            return Q.fcall(function() {
-                if (!auth.priviliged)
-                    return db.one(
-                        "select count(*) as count from items where agent_id = $1",
-                        auth.agent_id).
-                    then(function(result) {
-                        if (result.count >= config.game.maximum_vessels)
-                            throw new Error("already have the maximum number of deployed vessels")
-                    })
-            }).then(function() {
-                return spawnVessel(req.ctx, {
-                    uuid: msg.vessel_uuid, // uuid may be undefined here, spawnVessel will populate it if need be
-                    blueprint: msg.blueprint,
-                    agent_id: auth.agent_id,
-                    position: C.deepMerge(container.position, {}),
-                    solar_system: container.solar_system,
-                    from: {
-                        uuid: msg.container_id,
-                        slice: msg.slice
-                    }
+        if (container === undefined)
+            throw new Error("failed to find the container to launch the vessel. container_id=" + msg.container_id) // TODO 404
+
+        Q.fcall(function() {
+            if (!req.auth.priviliged)
+                return db.one(
+                    "select count(*) as count from items where agent_id = $1",
+                    req.auth.agent_id).
+                then(function(result) {
+                    if (result.count >= config.game.maximum_vessels)
+                        throw new Error("already have the maximum number of deployed vessels")
                 })
-            }).then(function(data) {
-                res.json({
-                    result: data
-                })
+        }).then(function() {
+            return spawnVessel(req.ctx, {
+                uuid: msg.vessel_uuid, // uuid may be undefined here, spawnVessel will populate it if need be
+                blueprint: msg.blueprint,
+                agent_id: req.auth.agent_id,
+                position: C.deepMerge(container.position, {}),
+                solar_system: container.solar_system,
+                from: {
+                    uuid: msg.container_id,
+                    slice: msg.slice
+                }
             })
-        }).fail(C.http.errHandler(req, res, console.log)).done()
+        }).then(function(data) {
+            res.json({
+                result: data
+            })
+        }).fail(next).done()
     })
 
-    app.post('/commands/spawn', function(req, res) {
-        C.http.authorize_req(req, true).then(function(auth) {
-            return spawnVessel(req.ctx, req.body).then(function(data) {
-                res.json({
-                    result: data
-                })
+    app.post('/commands/spawn', function(req, res, next) {
+        if (req.auth.privileged !== true)
+            throw new Error("restricted to npc agents")
+
+        return spawnVessel(req.ctx, req.body).then(function(data) {
+            res.json({
+                result: data
             })
-        }).fail(C.http.errHandler(req, res, console.log)).done()
+        }).fail(next).done()
     })
 
-    app.post('/commands/spawnStarter', function(req, res) {
-        C.http.authorize_req(req).then(function(auth) {
-            var uuid = uuidGen.v1()
+    app.post('/commands/spawnStarter', function(req, res, next) {
+        var uuid = uuidGen.v1()
 
-            return inventory.getStarterData(req.ctx, uuid, auth.agent_id).
-            then(function(data) {
-                return Q.all([
-                    solarsystems.getSpawnSystemId(),
-                    db.blueprints.get(data.blueprint_id),
-                    data
-                ])
-            }).spread(function(solar_system, blueprint, data) {
-                return space_data.spawn(req.ctx, uuid, blueprint, {
-                    modules: data.modules,
-                    agent_id: auth.agent_id,
-                    position: space_data.random_position(config.game.spawn_range),
-                    solar_system: solar_system
-                })
-            }).then(function(data) {
-                res.json({
-                    result: data
-                })
+        return inventory.getStarterData(req.ctx, uuid, req.auth.agent_id).
+        then(function(data) {
+            return Q.all([
+                solarsystems.getSpawnSystemId(),
+                db.blueprints.get(data.blueprint_id),
+                data
+            ])
+        }).spread(function(solar_system, blueprint, data) {
+            return space_data.spawn(req.ctx, uuid, blueprint, {
+                modules: data.modules,
+                agent_id: req.auth.agent_id,
+                position: space_data.random_position(config.game.spawn_range),
+                solar_system: solar_system
             })
-        }).fail(C.http.errHandler(req, res, console.log)).done()
+        }).then(function(data) {
+            res.json({
+                result: data
+            })
+        }).fail(next).done()
     })
 }

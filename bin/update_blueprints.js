@@ -29,7 +29,7 @@ Q.fcall(function() {
         return db.oneOrNone("select * from blueprints where tech = $1 and is_public = true and doc::json->>'name' = $2", [ d.tech, d.name ]).
         then(function(row) {
             if (row === null) {
-                return design_api.buildNewBlueprint(d, d.parameters, true)
+                return design_api.buildNewBlueprint(db, d, d.parameters, true)
             } else {
                 ctx.trace({ parameters: d.parameters, current: row }, 'updating blueprint')
                 C.deepMerge(d.parameters, row.parameters)

@@ -8,7 +8,6 @@ var Q = require('q')
 
 var config = require('./config')
 var worldState = config.state
-var db = config.db
 
 function buildBigList(rows) {
     return rows.reduce(function(acc, row) {
@@ -78,7 +77,7 @@ var self = module.exports = {
         return db.none("update blueprints set doc = $2, parameters = $3 where id = $1", [ row.id, row.doc, row.parameters ])
     
     },
-    buildNewBlueprint: function(parent, parameters, is_public, native_modules) {
+    buildNewBlueprint: function(db, parent, parameters, is_public, native_modules) {
         var bp_type,
             d = parent,
             uuid = uuidGen.v1(),
@@ -122,49 +121,43 @@ var self = module.exports = {
         })
     },
     router: function(app) {
-        app.get('/techs/:name', function(req, res) {
-            C.http.authorize_req(req).then(function(auth) {
-                var tech = config.design_techs[req.param('name')]
-                if (tech === undefined)
-                    return res.sendStatus(404)
+        app.get('/techs/:name', function(req, res, next) {
+            var tech = config.design_techs[req.param('name')]
+            if (tech === undefined)
+                return res.sendStatus(404)
 
-                res.send(tech)
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            res.send(tech)
         })
 
-        app.get('/blueprints/:uuid', function(req, res) {
-            C.http.authorize_req(req).then(function(auth) {
-                var query,
-                    uuid = req.param('uuid')
+        app.get('/blueprints/:uuid', function(req, res, next) {
+            var query,
+                uuid = req.param('uuid')
 
-                C.assertUUID(uuid)
+            C.assertUUID(uuid)
 
-                if (auth.privileged === true) {
-                    query = db.one("select * from blueprints where id = $1", uuid)
-                } else {
-                    query = db.one("select * from blueprints where id in (select blueprint_id from blueprint_perms where agent_id = $1) or blueprints.is_public = true and id = $2", [auth.agent_id, uuid])
-                }
+            if (req.auth.privileged === true) {
+                query = req.db.one("select * from blueprints where id = $1", uuid)
+            } else {
+                query = req.db.one("select * from blueprints where id in (select blueprint_id from blueprint_perms where agent_id = $1) or blueprints.is_public = true and id = $2", [req.auth.agent_id, uuid])
+            }
 
-                return query.then(function(row) {
-                    res.send(row.doc);
-                })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            return query.then(function(row) {
+                res.send(row.doc);
+            }).fail(next).done()
         });
 
-        app.get('/blueprints', function(req, res) {
-            C.http.authorize_req(req).then(function(auth) {
-                var list
-                if (auth.privileged === true) {
-                    list = db.many("select * from blueprints")
-                } else {
-                    list = db.many("select * from blueprints where id in (select blueprint_id from blueprint_perms where agent_id = $1) or blueprints.is_public = true", auth.agent_id)
-                }
+        app.get('/blueprints', function(req, res, next) {
+            var list
+            if (req.auth.privileged === true) {
+                list = req.db.many("select * from blueprints")
+            } else {
+                list = req.db.many("select * from blueprints where id in (select blueprint_id from blueprint_perms where agent_id = $1) or blueprints.is_public = true", req.auth.agent_id)
+            }
 
-                return list.then(buildBigList).
-                then(function(blueprints) {
-                    res.send(blueprints);
-                })
-            }).fail(C.http.errHandler(req, res, console.log)).done()
+            return list.then(buildBigList).
+            then(function(blueprints) {
+                res.send(blueprints);
+            }).fail(next).done()
         });
     }
 }

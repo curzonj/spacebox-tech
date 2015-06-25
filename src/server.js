@@ -14,6 +14,7 @@ var config = require('./config')
 config.setName('api')
 
 var worldState = config.state
+var db = config.db
 
 var app = express()
 var port = process.env.PORT || 5000
@@ -26,6 +27,8 @@ app.use(bunyanRequest({
 
 app.use(function(req, res, next) {
     req.ctx = req.log
+    req.db = db.tracing(req.ctx)
+
     next()
 })
 
@@ -39,19 +42,37 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
     // Interpret Swagger resources and attach metadata to request - must be first in swagger-tools middleware chain
     app.use(middleware.swaggerMetadata());
 
+    // Serve the Swagger documents and Swagger UI unauthenticated
+    app.use(middleware.swaggerUi());
+
     // Provide the security handlers
     app.use(middleware.swaggerSecurity({
         "swagger-ui-key": function (req, def, api_key, callback) {
-            if (api_key) {
+            if (api_key)
                 req.headers.authorization = "Bearer " +api_key
-
-                // Ideally in the future endpoints just look for auth here
-                req.auth = C.http.authorize_token(api_key, false)
-            }
 
             callback()
         }
     }));
+
+    app.use(function(req, res, next) {
+        //console.log(req.swagger)
+
+        // We ignore the specifics atm about what security
+        // is required. We also authenticate anything not
+        // specified by swagger. Secure by default.
+        if (req.swagger && req.swagger.security && req.swagger.security.length === 0)
+            return next()
+
+        C.http.authorize_req(req).
+        then(function(auth) {
+            req.auth = auth
+            next()
+        }, function(err) {
+            req.ctx.error({ err: err }, 'authentication failed')
+            next(err)
+        }).done()
+    })
 
     // Validate Swagger requests
     app.use(middleware.swaggerValidator({
@@ -60,9 +81,6 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
 
     // Route validated requests to appropriate controller
     //app.use(middleware.swaggerRouter(options));
-
-    // Serve the Swagger documents and Swagger UI
-    app.use(middleware.swaggerUi());
 
     // Not all endpoints use swagger yet
     app.use(bodyParser.json())
@@ -98,6 +116,16 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
         next()
     })
 
+    app.use(function(req, res, next) {
+        if (!req.body.wait_ts)
+            return next()
+
+        worldState.waitForTick(req.ctx, req.body.wait_ts, config.tick_wait).
+        then(function() {
+            next()
+        }).fail(next).done()
+    })
+
     require('./routes.js')(app)
 
     // This only handles synchronous errors. Promise errors
@@ -105,25 +133,30 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
     app.use(function(err, req, res, next) {
         if (err) {
             var dats = { err: err }
+            var status = 500
             var json = {
                 errorDetails: err.toString()
             }
 
-            if (err.originalResponse) {
+            if (err.originalResponse)
                 if (err.originalResponse instanceof Buffer) {
                     dats.originalResponse = err.originalResponse.toString()
                 } else {
                     dats.originalResponse = err.originalResponse
                 }
-            }
-            if (err.results) {
-                json.validation = err.results
-                dats.results = err.results
-            }
+
+            if (err.results)
+                json.validation = dats.results = err.results
 
             req.ctx.error(dats, 'http error')
 
-            res.status(500).json(json)
+            if (C.isA(err, "HttpError")) {
+                status = err.status || 500
+                json.errorCode = err.msgCode
+                json.errorDetails = err.details
+            }
+
+            res.status(status).json(json)
         }
 
         // By not returning the err we show we've handled it
@@ -135,8 +168,7 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
     worldState.events.once('worldloaded', function() {
         var server = http.createServer(app)
 
-        // TODO implement this configurably
-        //server.timeout = 5000
+        server.timeout = parseInt(process.env.REQUEST_TIMEOUT) || 5000
         server.listen(port)
         config.ctx.info("server ready")
     })

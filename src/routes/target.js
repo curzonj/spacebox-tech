@@ -29,93 +29,72 @@ function setState(ship, system, state, patch) {
 }
 
 module.exports = function(app) {
-    app.post('/commands/shoot', function(req, res) {
+    app.post('/commands/shoot', function(req, res, next) {
         var msg = req.body
+        var ship = worldState.get(msg.vessel)
+        var target = worldState.get(msg.target)
 
-        Q.spread([
-            C.http.authorize_req(req),
-            worldState.getP(msg.vessel),
-            worldState.getP(msg.target),
-        ], function(auth, ship, target) {
-            validateSubjectTarget(req.ctx, ship, target, auth)
+        validateSubjectTarget(req.ctx, ship, target, req.auth)
 
-            if (ship.systems.weapon === undefined)
-                throw new Error("that vessel has no weapons")
+        if (ship.systems.weapon === undefined)
+            throw new Error("that vessel has no weapons")
 
-            setState(ship, 'weapon', 'shoot', {
-                target: msg.target
-            }).then(function() {
-                res.json({
-                    result: true
-                })
+        setState(ship, 'weapon', 'shoot', {
+            target: msg.target
+        }).then(function() {
+            res.json({
+                result: true
             })
-        }).fail(C.http.errHandler(req, res, console.log)).done()
+        }).fail(next).done()
     })
 
-    app.post('/commands/move_to', function(req, res) {
+    app.post('/commands/move_to', function(req, res, next) {
         var msg = req.body
+        var ship = worldState.get(msg.vessel)
 
-        Q.spread([
-            C.http.authorize_req(req),
-            worldState.getP(msg.vessel),
-        ], function(auth, ship) {
-            if (ship === null || ship.agent_id !== auth.agent_id)
-                throw new Error("no such vessel")
+        if (ship === null || ship.agent_id !== req.auth.agent_id)
+            throw new Error("no such vessel")
 
-            setState(ship, 'engine', 'moveTo', {
-                moveTo: C.assertVector(msg.target)
-            }).then(function(data) {
-                res.json({
-                    result: data
-                })
+        setState(ship, 'engine', 'moveTo', {
+            moveTo: C.assertVector(msg.target)
+        }).then(function(data) {
+            res.json({
+                result: data
             })
-        }).fail(C.http.errHandler(req, res, console.log)).done()
+        }).fail(next).done()
     })
 
-    app.post('/commands/orbit', function(req, res) {
+    app.post('/commands/orbit', function(req, res, next) {
         var msg = req.body
 
-        C.http.authorize_req(req).then(function(auth) {
-            return worldState.waitForTick(req.ctx, msg.ts, config.tick_wait).
-            then(function() {
-                return Q.all([
-                    worldState.getP(msg.vessel),
-                    worldState.getP(msg.target),
-                ])
-            }).spread(function(ship, target) {
-                validateSubjectTarget(req.ctx, ship, target, auth)
+        var ship = worldState.get(msg.vessel)
+        var target = worldState.get(msg.target)
 
-                setState(ship, 'engine', 'orbit', {
-                    orbitRadius: msg.radius || 1,
-                    orbitTarget: msg.target
-                }).then(function(data) {
-                    res.json({
-                        result: data
-                    })
-                })
+        validateSubjectTarget(req.ctx, ship, target, req.auth)
+
+        setState(ship, 'engine', 'orbit', {
+            orbitRadius: msg.radius || 1,
+            orbitTarget: msg.target
+        }).then(function(data) {
+            res.json({
+                result: data
             })
-        }).fail(C.http.errHandler(req, res, console.log)).done()
+        }).fail(next).done()
     })
 
-    app.post('/commands/full_stop', function(req, res) {
+    app.post('/commands/full_stop', function(req, res, next) {
         var msg = req.body
+        var ship = worldState.get(msg.vessel)
 
-        Q.spread([
-            C.http.authorize_req(req),
-            worldState.getP(msg.vessel),
-        ], function(auth, ship) {
-            if (ship === null || ship.agent_id !== auth.agent_id)
-                throw new Error("no such vessel")
+        if (ship === null || ship.agent_id !== req.auth.agent_id)
+            throw new Error("no such vessel")
 
-            setState(ship, 'engine', 'fullStop').
-            then(function(data) {
-                res.json({
-                    result: data
-                })
+        setState(ship, 'engine', 'fullStop').
+        then(function(data) {
+            res.json({
+                result: data
             })
-        }).fail(C.http.errHandler(req, res, console.log)).done()
+        }).fail(next).done()
     })
-
-
 }
 

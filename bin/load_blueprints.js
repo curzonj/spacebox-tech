@@ -35,7 +35,7 @@ return Q.all([
                 })
             }
 
-            return design_api.buildNewBlueprint(d, d.parameters, true, list)
+            return design_api.buildNewBlueprint(db, d, d.parameters, true, list)
         }).then(function(doc) {
             designs.push(doc)
         })

@@ -9,6 +9,21 @@
   "host": "spacebox-tech.herokuapp.com",
   "basePath": "/",
   "definitions": {
+    "position": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      },
+      "required": [ "x", "y", "z" ]
+    },
     "uuid": {
       "type": "string",
       "pattern" : "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -20,6 +35,16 @@
           "description": "this really should be rationalized but atm, it could be a string OR an object. Swagger doesn't support this as a schema so it's left undefined"
         }
       }
+    },
+    "scanWormholesParameters": {
+      "type": "object",
+      "properties": {
+        "vessel": {
+          "description": "the uuid of the vessel to scan from",
+          "$ref": "#/definitions/uuid"
+        }
+      },
+      "required": [ "vessel" ]
     },
     "unpackItemParameters": {
       "type": "object",
@@ -122,7 +147,7 @@
           "$ref": "#/definitions/uuid"
         }
       },
-      "required": [ "container_id", "slice", "blueprint" ]
+      "required": [ "container_id", "blueprint" ]
     },
     "refittingJob": {
       "type": "object",
@@ -200,7 +225,7 @@
           "default": "default"
         }
       },
-      "required": [ "facility", "blueprint", "quantity", "slice" ]
+      "required": [ "facility", "blueprint", "quantity" ]
     },
     "researchJob": {
       "type": "object",
@@ -247,7 +272,7 @@
           "default": "default"
         }
       },
-      "required": [ "facility", "blueprint", "quantity", "slice" ]
+      "required": [ "facility", "blueprint" ]
     }
   },
   "securityDefinitions": {
@@ -285,6 +310,112 @@
     }
   },
   "paths": {
+    "/commands/scanWormholes": {
+      "post": {
+        "description": "returns a list of wormholes in the solar system",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "the parameters as json",
+            "schema": {
+              "$ref": "#/definitions/scanWormholesParameters"
+            }
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/Empty" },
+          "404": { "$ref": "#/responses/NotFound" },
+          "200": {
+            "description": "A job",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "uuid": {
+                        "description": "the uuid of the space object in this solar system for the wormhole",
+                        "$ref": "#/definitions/uuid"
+                      },
+                      "position": {
+                        "$ref": "#/definitions/position"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{uuid}": {
+      "post": {
+        "tags": [ "jobs" ],
+        "description": "Currently the only effect is that the job will be retriggered for processing. When a job fails the backoff is increased and if you fix the error condition, it may be awhile before the job is checked again. Call this endpoint and the job will be checked soon.",
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "the uuid of the job",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "204": {"$ref": "#/responses/Empty" }
+        }
+      },
+      "delete": {
+        "tags": [ "jobs" ],
+        "description": "If your jobs errors out, you'll need to resolve the error or delete the job before the facility will start processing jobs again. If you delete a job that has already consumed the resources, you won't get them back.",
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "the uuid of the job",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "204": {"$ref": "#/responses/Empty" }
+        }
+      },
+      "get": {
+        "tags": [ "jobs" ],
+        "description": "returns the details of the job",
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "the uuid of the job",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "304": { "$ref": "#/responses/Empty" },
+          "404": { "$ref": "#/responses/NotFound" },
+          "200": {
+            "description": "A job",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
     "/items": {
       "post": {
         "tags": [ "inventory" ],
@@ -379,9 +510,46 @@
         }
       }
     },
+    "/facilities/{uuid}": {
+      "delete": {
+        "tags": [ "facilities" ],
+        "description": "delete facilities that you uninstalled during a refit or construction. You can only delete disabled facilities. Deleting a facility cancels any jobs running there. Cancelling a job you lose both the output and the input, that may change in the future.",
+        "parameters": [
+          {
+            "name": "uuid",
+            "description": "the uuid of the blueprint you want",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          }
+        ],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "204": { "$ref": "#/responses/Empty" }
+        }
+      }
+    },
     "/facilities": {
+      "post": {
+        "tags": [ "facilities" ],
+        "description": "re-enable any facilities that were disabled during refitting or construction",
+        "parameters": [],
+        "responses": {
+          "default": { "$ref": "#/responses/Error" },
+          "200": {
+            "description": "Facilities",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
       "get": {
-        "tags": [ "jobs" ],
+        "tags": [ "facilities" ],
         "description": "get a list of all your facilities that you can run jobs in",
         "parameters": [],
         "responses": {

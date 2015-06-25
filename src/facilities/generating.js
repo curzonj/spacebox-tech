@@ -6,13 +6,11 @@ var moment = require('moment')
 var uuidGen = require('node-uuid')
 
 var config = require('../config')
-var db = config.db
 var pubsub = require('../pubsub')
 var inventory = require('../inventory')
 var helpers = require('./helpers')
 
 module.exports = {
-
     checkAndDeliverResources: function(ctx, uuid, db) {
         return db.tx(function(db) {
             return db.one("select * from facilities where id = $1 for update", uuid).
@@ -72,5 +70,4 @@ module.exports = {
             return db.facilities.incrementBackoff(uuid)
         })
     }
-
 }

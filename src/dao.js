@@ -1,8 +1,8 @@
 'use strict';
 
-var DBClass = require('spacebox-common-native/src/pg-wrapper'),
-    config = require('./config'),
-    moment = require('moment')
+var DBClass = require('spacebox-common-native/src/pg-wrapper')
+var config = require('./config')
+var moment = require('moment')
 
 DBClass.extend(function(db) {
     return {
@@ -15,7 +15,7 @@ DBClass.extend(function(db) {
         wormholes: {
             randomGeneratorFn: function(system_id) {
                 return function() {
-                    return db.query("with available_systems as (select * from system_wormholes where count < $3 and id != $1 and id not in (select inbound_system from wormholes where outbound_system = $1)) insert into wormholes (id, expires_at, outbound_system, inbound_system) select uuid_generate_v1(), current_timestamp + interval $4, $1, (select id from available_systems offset floor(random()*(select count(*) from available_systems)) limit 1) where not exists (select id from system_wormholes where id = $1 and count >= $2) returning id", [system_id, config.game.minimum_count_wormholes, config.game.maximum_count_wormholes, config.game.wormhole_lifetime])
+                    return db.query("with available_systems as (select id from system_wormholes where count < $3 and id != $1 and id not in (select inbound_system from wormholes where outbound_system = $1)) insert into wormholes (id, expires_at, outbound_system, inbound_system) select uuid_generate_v1(), current_timestamp + interval $4, $1, (select id from available_systems offset floor(random()*(select count(*) from available_systems)) limit 1) where not exists (select id from system_wormholes where id = $1 and count >= $2) returning id", [system_id, config.game.minimum_count_wormholes, config.game.maximum_count_wormholes, config.game.wormhole_lifetime])
                 }
             }
         },

@@ -3,6 +3,7 @@
 var Q = require('q')
 var C = require('spacebox-common')
 var util = require('util')
+var async = require('async-q')
 
 var config = require('./config')
 var worldState = config.state
@@ -24,29 +25,28 @@ var self = {
             return data[0].id
         })
     },
-    populateWormholes: function(data, ctx) {
-        ctx.debug({ wormholes: data }, 'wormholes in system')
-
-        return Q.all(data.map(function(row) {
-            var q = Q(null),
-                fn = db.wormholes.randomGeneratorFn(row.id)
-
-            // The generator function SQL will make sure
-            // we only create the correct number of wormholes
-            for (var i = 0; i < config.game.minimum_count_wormholes; i++) {
-                q = q.then(fn);
-            }
-
-            return q
-        }))
+    populateWormholes: function(id, ctx) {
+        // The generator function SQL will make sure
+        // we only create the correct number of wormholes
+        return db.tx(function(db) {
+            return db.query("LOCK TABLE wormholes IN SHARE ROW EXCLUSIVE MODE").
+            then(function() {
+                return async.timesSeries(
+                    config.game.minimum_count_wormholes,
+                    db.wormholes.randomGeneratorFn(id)
+                )
+            })
+        })
     },
     getWormholes: function(systemid, ctx) {
         ctx.debug({ system_id: systemid }, 'searching for current wormholes')
 
-        return db.query("select * from system_wormholes where id = $1", [systemid]).
-        then(self.populateWormholes, ctx).
-        then(function() {
-            return db.query("select * from wormholes where (inbound_system = $1 or outbound_system = $1) and expires_at > current_timestamp ", [systemid])
+        return db.one("select * from system_wormholes where id = $1", systemid).
+        then(function(result) {
+            if (result.count < config.game.minimum_count_wormholes)
+                return self.populateWormholes(systemid, ctx)
+        }).then(function() {
+            return db.many("select * from wormholes where (inbound_system = $1 or outbound_system = $1) and expires_at > current_timestamp ", systemid)
         })
     },
     ensurePoolSize: function() {
@@ -66,9 +66,10 @@ var self = {
 
         db.query("select * from wormholes where expires_at < current_timestamp").
         then(function(data) {
-            return Q.all(data.map(function(row) {
-                console.log('wormhole for cleanup', row)
-                return [row.inbound_id, row.outbound_id].map(function(key) {
+            return async.map(data, function(row) {
+                ctx.trace({ wormhole: row }, 'wormhole for cleanup')
+
+                return async.map([row.inbound_id, row.outbound_id], function(key) {
                     if (key === null)
                         return
 
@@ -76,14 +77,13 @@ var self = {
                     if (obj === undefined)
                         return
 
-                    worldState.queueChangeIn(obj.uuid, {
+                    return worldState.queueChangeIn(obj.uuid, {
                         tombstone: true
+                    }).then(function() {
+                        return db.query("delete from wormholes where id = $1", row.id)
                     })
-
-                    console.log("cleaning up wormhole", row.id)
-                    return db.query("delete from wormholes where id = $1", [row.id])
                 })
-            }))
+            })
         }).done()
     }
 }

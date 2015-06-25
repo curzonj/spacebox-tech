@@ -88,9 +88,9 @@ CREATE TABLE space_objects (
 CREATE TABLE wormholes (
     id uuid PRIMARY KEY,
     outbound_system uuid not null REFERENCES solar_systems (id),
-    outbound_id uuid REFERENCES space_objects (id),
+    outbound_id uuid,
     inbound_system uuid not null REFERENCES solar_systems (id),
-    inbound_id uuid REFERENCES space_objects (id),
+    inbound_id uuid,
     expires_at timestamp not null
 );
 
