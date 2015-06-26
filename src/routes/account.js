@@ -17,8 +17,6 @@ module.exports = function(app) {
 
         return db.query("select * from items where agent_id = $1", req.auth.agent_id).then(function(data) {
             return async.map(data, function(row) {
-                // World state will notify us when it has despawned and
-                // we can delete everything
                 return worldState.queueChangeIn(row.id, {
                     tombstone_cause: 'despawned',
                     tombstone: true

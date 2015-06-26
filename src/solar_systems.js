@@ -69,19 +69,15 @@ var self = {
             return async.map(data, function(row) {
                 ctx.trace({ wormhole: row }, 'wormhole for cleanup')
 
-                return async.map([row.inbound_id, row.outbound_id], function(key) {
-                    if (key === null)
+                return async.map([row.inbound_doc, row.outbound_doc], function(doc) {
+                    if (doc === null)
                         return
 
-                    var obj = worldState.get(key)
-                    if (obj === undefined)
-                        return
-
-                    return worldState.queueChangeIn(obj.uuid, {
+                    return worldState.queueChangeIn(doc.uuid, {
                         tombstone: true
-                    }).then(function() {
-                        return db.query("delete from wormholes where id = $1", row.id)
                     })
+                }).then(function() {
+                    return db.query("delete from wormholes where id = $1", row.id)
                 })
             })
         }).done()

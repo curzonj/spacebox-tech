@@ -19,81 +19,74 @@ var position2 = new THREE.Vector3()
 module.exports = function(app) {
     app.post('/commands/scanWormholes', function(req, res, next) {
         var msg = req.body
-        var ship = worldState.get(msg.vessel)
 
-        if (ship === undefined)
-            throw new Error("invalid vessel")
+        return worldState.getP(msg.vessel).
+        then(function(ship) {
+            if (ship === null)
+                throw new Error("invalid vessel")
 
-        var systemId = ship.solar_system
-
-        return solarsystems.getWormholes(systemId, req.ctx).then(function(data) {
-            req.ctx.trace({ wormholes: data }, 'wormholes in the system')
-
-            return async.map(data, function(row) {
-                var spodb_id, destination, direction;
+            return ship.solar_system
+        }).then(function(systemId) {
+            return async.map(
+            solarsystems.getWormholes(systemId, req.ctx).
+            tap(function(data) {
+                req.ctx.trace({ wormholes: data, solar_system: systemId }, 'wormholes in the system')
+            }),
+            function(row) {
+                var spo_doc, destination, direction;
 
                 if (row.outbound_system === systemId) {
                     direction = 'outbound'
-                    spodb_id = row.inbound_id
+                    spo_doc = row.outbound_doc
                     destination = row.inbound_system
                 } else {
                     direction = 'inbound'
-                    spodb_id = row.inbound_id
+                    spo_doc = row.inbound_doc
                     destination = row.outbound_system
                 }
 
-                if (spodb_id === null) {
+                if (spo_doc === null) {
                     return req.db.tx(function(db) {
+
                         // Open a transaction and lock the wormhole before trying to spawn the other
                         // end so we don't get race conditions of two ships trying to scan the same
                         // system at the same time
                         return db.one("select * from wormholes where id = $1 for update", row.id).
                         then(function(row) {
-                            if (!row[direction+"_id"]) {
-                                var position = space_data.random_position(config.game.wormhole_range)
+                            if (!row[direction+"_doc"]) {
+                                spo_doc = {
+                                    position: space_data.random_position(config.game.wormhole_range),
+                                    solar_system: systemId
+                                }
+
                                 return space_data.addObject({
                                     type: 'wormhole',
-                                    position: position,
+                                    position: spo_doc.position,
                                     solar_system: systemId,
                                     wormhole: {
-                                        id: row.id,
                                         destination: destination,
-                                        direction: direction,
                                         expires_at: row.expires_at
                                     }
                                 }).tap(function(spo_id) {
-                                    return db.query("update wormholes set " + direction + "_id = $2 where id = $1", [row.id, spo_id])
-                                }).then(function(spo_id) {
-                                    return {
-                                        uuid: spo_id,
-                                        position: position
-                                    }
+                                    spo_doc.uuid = spo_id
+                                    return db.none("update wormholes set " + direction + "_doc = $2 where id = $1", [row.id, spo_doc])
+                                }).then(function() {
+                                    return spo_doc
                                 })
                             } else {
-                                // someone else scanned and generated a position for this wormhole
-                                return worldState.wait_for_world(function(obj) {
-                                    return (obj.type === 'wormhole' &&
-                                            obj.wormhole.id === row.id)
-                                }).then(function(obj) {
-                                    return {
-                                        uuid: spodb_id,
-                                        position: obj.position
-                                    }
-                                })
+                                return row[direction+'_doc']
                             }
                         })
                     })
                 } else {
-                    return worldState.wait_for_world_fn(function(data) {
-                        // If it's undefined it won't match
-                        return data[spodb_id]
-                    }).then(function(obj) {
-                        return {
-                            uuid: spodb_id,
-                            position: obj.position
-                        }
-                    })
+                    return spo_doc
                 }
+            }).then(function(list) {
+                list.forEach(function(obj) {
+                    delete obj.solar_system // it's not needed here
+                })
+
+                return list
             })
         }).then(function(data) {
             res.send({
@@ -104,83 +97,87 @@ module.exports = function(app) {
 
     app.post('/commands/jumpWormhole', function(req, res, next) {
         var msg = req.body
-        var ship = worldState.get(msg.vessel)
-        var wormhole = worldState.get(msg.wormhole)
-        var systemId = ship.solar_system
 
-        if (!ship || !wormhole) {
-            throw new Error("something is missing")
-        } else if (wormhole.solar_system !== systemId) {
-            throw new Error("requested wormhole is in the wrong system")
-        } else if (wormhole.type !== 'wormhole') {
-            throw new Error("that's not a wormhole")
-        } else if (wormhole.tombstone === true) {
-            throw new Error("that wormhole has collapsed")
-        } else if (ship.systems.engine === undefined) {
-            throw new Error("that vessel can't move")
-        }
-
-        th.buildVector(position1, ship.position)
-        th.buildVector(position2, wormhole.position)
-
-        //console.log(system.range, position1.distanceTo(position2), position1, position2)
-
-        var current_range = position1.distanceTo(position2)
-        if (current_range > config.game.wormhole_jump_range)
-            throw new C.http.Error(400, "You are not within range", {
-                required: config.game.wormhole_jump_range,
-                current: current_range
-            })
-
-        req.ctx.debug({ wormhole: wormhole }, 'wormhole object for jump')
-
-        return req.db.oneOrNone("select * from wormholes where id = $1 and expires_at > current_timestamp", wormhole.wormhole.id).
+        return req.db.oneOrNone("select * from wormholes where inbound_doc::json->>'uuid' = $1 or outbound_doc::json->>'uuid' = $1 and expires_at > current_timestamp", msg.wormhole).
         then(function(row) {
             if (!row)
-                throw new Error("that wormhole has collapsed")
+                throw new Error("that wormhole has collapsed or does not exist")
 
             req.ctx.debug({ wormhole: row }, 'wormhole record')
 
-            var direction = wormhole.wormhole.direction
+            return Q.all([ row, worldState.getP(msg.vessel) ])
+        }).spread(function(wormhole, ship) {
+            var systemId = ship.solar_system
+            var wh_doc = wormhole.outbound_doc
+
+            // This is the doc of the wormhole we are jumping through
+            if (wormhole.inbound_doc && wormhole.inbound_doc.uuid === msg.wormhole)
+                wh_doc = wormhole.inbound_doc
+
+            if (!ship) {
+                throw new Error("no such ship")
+            } else if (wh_doc.solar_system !== systemId) {
+                throw new Error("requested wormhole is in the wrong system")
+            } else if (ship.systems.engine === undefined) {
+                throw new Error("that vessel can't move")
+            }
+
+            th.buildVector(position1, ship.position)
+            th.buildVector(position2, wh_doc.position)
+
+            //console.log(system.range, position1.distanceTo(position2), position1, position2)
+
+            var current_range = position1.distanceTo(position2)
+            if (current_range > config.game.wormhole_jump_range)
+                throw new C.http.Error(400, "You are not within range", {
+                    required: config.game.wormhole_jump_range,
+                    current: current_range
+                })
+
+            return wormhole
+        }).then(function(row) {
+            var side = 'outbound'
+
+            // if we jump through the outbound WH we arrive at the inbound WH
+            if (row.outbound_doc && row.outbound_doc.uuid === msg.wormhole)
+                side = 'inbound'
+
+            var wh_doc = row[side+'_doc']
 
             return Q.fcall(function() {
-                if (direction === 'outbound' && row.inbound_id === null) {
-                    // this only happens on WHs outbound from this system
-                    var position = space_data.random_position(config.game.wormhole_range)
+                if (wh_doc === null) {
+                    // this only happens on the inbound side of wormholes
+                    if (side !== 'inbound') {
+                        req.ctx.error({ wormhole: row }, 'this wormhole is broken, the outbound doc is null')
+                        throw new Error('this wormhole is broken, the outbound doc is null')
+                    }
+
+                    wh_doc = {
+                        position: space_data.random_position(config.game.wormhole_range),
+                        solar_system: row.inbound_system
+                    }
+
                     return space_data.addObject({
                         type: 'wormhole',
-                        position: position,
+                        position: wh_doc.position,
                         solar_system: row.inbound_system,
-                        wormhole_id: row.id,
-                        destination: systemId,
-                        direction: 'inbound',
-                        expires_at: row.expires_at
+                        wormhole: {
+                            destination: row.outbound_system,
+                            expires_at: row.expires_at
+                        }
                     }).then(function(spo_id) {
+                        wh_doc.uuid = spo_id
+
                         req.ctx.debug({ row_id: row.id, spo_id: spo_id}, 'created wormhole to jump to')
-                        return req.db.query("update wormholes set inbound_id = $2 where id = $1", [row.id, spo_id])
-                    }).then(function() {
-                        return {
-                            solar_system: row.inbound_system,
-                            position: position,
-                        }
-                    })
-                } else {
-                    return worldState.wait_for_world_fn(function(data) {
-                        // If it's undefined it won't match
-                        return data[row.outbound_id]
-                    }).then(function(result) {
-                        return {
-                            solar_system: result.solar_system,
-                            position: result.position,
-                        }
+                        return req.db.query("update wormholes set inbound_doc = $2 where id = $1", [row.id, wh_doc])
                     })
                 }
-            }).then(function(result) {
+            }).then(function() {
                 // When you jump through the wormhole you're not moving
                 // when you get there
                 return worldState.queueChangeIn(msg.vessel, {
-                    solar_system: result.solar_system,
-                    position: result.position,
+                    solar_system: wh_doc.solar_system,
+                    position: wh_doc.position,
                     velocity: {
                         x: 0,
                         y: 0,
@@ -196,9 +193,9 @@ module.exports = function(app) {
                     }
                 })
             })
-        }).then(function(data) {
+        }).then(function() {
             res.send({
-                result: data
+                result: true
             })
         }).fail(next).done()
     })

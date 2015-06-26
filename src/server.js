@@ -116,16 +116,6 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
         next()
     })
 
-    app.use(function(req, res, next) {
-        if (!req.body.wait_ts)
-            return next()
-
-        worldState.waitForTick(req.ctx, req.body.wait_ts, config.tick_wait).
-        then(function() {
-            next()
-        }).fail(next).done()
-    })
-
     require('./routes.js')(app)
 
     // This only handles synchronous errors. Promise errors
@@ -165,14 +155,9 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
 
     WTF.trace.node.start({ })
 
-    worldState.events.once('worldloaded', function() {
-        var server = http.createServer(app)
+    var server = http.createServer(app)
 
-        server.timeout = parseInt(process.env.REQUEST_TIMEOUT) || 5000
-        server.listen(port)
-        config.ctx.info("server ready")
-    })
-
-
-    worldState.subscribe()
+    server.timeout = parseInt(process.env.REQUEST_TIMEOUT) || 5000
+    server.listen(port)
+    config.ctx.info("server ready")
 })

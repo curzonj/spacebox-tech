@@ -18,6 +18,9 @@ function validateSubjectTarget(ctx, subject, target, auth) {
 }
 
 function setState(ship, system, state, patch) {
+    if (ship.systems[system] === undefined)
+        throw new Error("that vessel has no "+system+" system")
+
     patch = patch || {}
     patch.state = state
     var obj = {
@@ -28,19 +31,23 @@ function setState(ship, system, state, patch) {
     return worldState.queueChangeIn(ship.uuid, obj)
 }
 
+function getAndCheckVessel(uuid, auth) {
+    return worldState.getP(uuid).
+    tap(function(ship) {
+        if (ship === null || ship.agent_id !== auth.agent_id)
+            throw new Error("no such vessel")
+    })
+}
+
 module.exports = function(app) {
     app.post('/commands/shoot', function(req, res, next) {
         var msg = req.body
-        var ship = worldState.get(msg.vessel)
-        var target = worldState.get(msg.target)
 
-        validateSubjectTarget(req.ctx, ship, target, req.auth)
-
-        if (ship.systems.weapon === undefined)
-            throw new Error("that vessel has no weapons")
-
-        setState(ship, 'weapon', 'shoot', {
-            target: msg.target
+        getAndCheckVessel(msg.vessel, req.auth).
+        then(function(ship) {
+            return setState(ship, 'weapon', 'shoot', {
+                target: msg.target
+            })
         }).then(function() {
             res.json({
                 result: true
@@ -50,16 +57,15 @@ module.exports = function(app) {
 
     app.post('/commands/move_to', function(req, res, next) {
         var msg = req.body
-        var ship = worldState.get(msg.vessel)
 
-        if (ship === null || ship.agent_id !== req.auth.agent_id)
-            throw new Error("no such vessel")
-
-        setState(ship, 'engine', 'moveTo', {
-            moveTo: C.assertVector(msg.target)
+        getAndCheckVessel(msg.vessel, req.auth).
+        then(function(ship) {
+            return setState(ship, 'engine', 'moveTo', {
+                moveTo: C.assertVector(msg.target)
+            })
         }).then(function(data) {
             res.json({
-                result: data
+                result: true
             })
         }).fail(next).done()
     })
@@ -67,32 +73,28 @@ module.exports = function(app) {
     app.post('/commands/orbit', function(req, res, next) {
         var msg = req.body
 
-        var ship = worldState.get(msg.vessel)
-        var target = worldState.get(msg.target)
-
-        validateSubjectTarget(req.ctx, ship, target, req.auth)
-
-        setState(ship, 'engine', 'orbit', {
-            orbitRadius: msg.radius || 1,
-            orbitTarget: msg.target
+        getAndCheckVessel(msg.vessel, req.auth).
+        then(function(ship) {
+            return setState(ship, 'engine', 'orbit', {
+                orbitRadius: msg.radius || 1,
+                orbitTarget: C.assertUUID(msg.target),
+            })
         }).then(function(data) {
             res.json({
-                result: data
+                result: true
             })
         }).fail(next).done()
     })
 
     app.post('/commands/full_stop', function(req, res, next) {
         var msg = req.body
-        var ship = worldState.get(msg.vessel)
 
-        if (ship === null || ship.agent_id !== req.auth.agent_id)
-            throw new Error("no such vessel")
-
-        setState(ship, 'engine', 'fullStop').
-        then(function(data) {
+        getAndCheckVessel(msg.vessel, req.auth).
+        then(function(ship) {
+            return setState(ship, 'engine', 'fullStop')
+        }).then(function(data) {
             res.json({
-                result: data
+                result: true
             })
         }).fail(next).done()
     })

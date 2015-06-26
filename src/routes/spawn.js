@@ -100,13 +100,6 @@ module.exports = function(app) {
         if (!msg.slice)
             msg.slice = 'default'
 
-        var container = worldState.get(msg.container_id)
-
-        req.ctx.trace({ container: container }, 'deploy from')
-
-        if (container === undefined)
-            throw new Error("failed to find the container to launch the vessel. container_id=" + msg.container_id) // TODO 404
-
         Q.fcall(function() {
             if (!req.auth.priviliged)
                 return db.one(
@@ -116,12 +109,20 @@ module.exports = function(app) {
                     if (result.count >= config.game.maximum_vessels)
                         throw new Error("already have the maximum number of deployed vessels")
                 })
+
         }).then(function() {
+            return worldState.getP(msg.container_id).
+            tap(function(container) {
+                req.ctx.trace({ container: container }, 'deploy from')
+                if (container === null)
+                    throw new Error("failed to find the container. container_id=" + msg.container_id) // TODO 404
+            })
+        }).then(function(container) {
             return spawnVessel(req.ctx, {
                 uuid: msg.vessel_uuid, // uuid may be undefined here, spawnVessel will populate it if need be
                 blueprint: msg.blueprint,
                 agent_id: req.auth.agent_id,
-                position: C.deepMerge(container.position, {}),
+                position: container.position,
                 solar_system: container.solar_system,
                 from: {
                     uuid: msg.container_id,

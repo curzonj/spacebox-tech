@@ -4,8 +4,6 @@ var Q = require('q')
 var C = require('spacebox-common')
 
 var config = require('../config')
-var worldState = config.state
-
 var helpers = require('./helpers')
 var production = require('../production_dep')
 var inventory = require('../inventory')

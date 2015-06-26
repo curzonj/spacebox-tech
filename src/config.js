@@ -17,7 +17,7 @@ module.exports = {
         C.deepMerge({
             ctx: ctx,
             db: require('spacebox-common-native').db_select('api', ctx),
-            state: require('spacebox-common-native/src/redis-state')(ctx),
+            state: require('./world_state')(ctx),
         }, module.exports)
     }
 }

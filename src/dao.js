@@ -92,7 +92,7 @@ DBClass.extend(function(db) {
             },
             destroy: function(uuid) {
                 // TODO this should also require that the container is empty
-                return db.query("delete from containers where id = $1", [uuid])
+                return db.query("delete from containers where id = $1", uuid)
             }
         },
         facilities: {
