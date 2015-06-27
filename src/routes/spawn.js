@@ -65,9 +65,9 @@ module.exports = function(app) {
             worldState.getP(msg.vessel_uuid),
             worldState.getP(msg.container),
         ], function(vessel, container) {
-            if (vessel === undefined || vessel.tombstone === true) {
+            if (vessel === null) {
                 throw new Error("no such vessel")
-            } else if (container === undefined || container.tombstone === true) {
+            } else if (container === null) {
                 throw new Error("no such container")
             }
 

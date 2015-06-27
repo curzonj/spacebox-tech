@@ -118,7 +118,8 @@ module.exports = function(app) {
                 throw new Error("no such ship")
             } else if (wh_doc.solar_system !== systemId) {
                 throw new Error("requested wormhole is in the wrong system")
-            } else if (ship.systems.engine === undefined) {
+            } else if (ship.systems.indexOf('engine') === -1) {
+                req.ctx.warn({ ship: ship }, 'engine request on structure')
                 throw new Error("that vessel can't move")
             }
 

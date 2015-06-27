@@ -18,7 +18,7 @@ function validateSubjectTarget(ctx, subject, target, auth) {
 }
 
 function setState(ship, system, state, patch) {
-    if (ship.systems[system] === undefined)
+    if (ship.systems.indexOf(system) === -1)
         throw new Error("that vessel has no "+system+" system")
 
     patch = patch || {}
